@@ -172,6 +172,30 @@ agent 节点）→ 起 `bridge_node.py` → 起 `agent_node.py`（`LEAD_QUANTIZE
 | `lead_v1`（主仓库）      | 共用代码：`src/lead/**`、`sil/ros_bridge/**`、`sil/tools/**`、`sil/docker/**`、`sil/maintain_repo.sh`、`docs/`、构建文件 | 在本机改   |
 | `lead_orin`（Orin 仓库） | Orin 专属：`sil/orin/**`（agent 节点）、它自己的 `README.md`                                                             | 在 Orin 改 |
 
+### 10.1 Orin 侧改动边界（能改 / 不能改）
+
+同步脚本（`sync_orin_repo.sh`）只同步共享路径，所以规则很硬：
+
+**可以改（Orin 专属，改动能保留）：**
+
+| 路径                    | 说明                                                               |
+| ----------------------- | ------------------------------------------------------------------ |
+| `sil/orin/**`           | agent 节点及其下新增文件（TensorRT 加载、Orin 接线、设备相关调整） |
+| `README.md`             | `lead_orin` 自己的说明（同步脚本刻意不覆盖）                       |
+| 根目录你新建的文件/目录 | 不在同步范围内的都不会被动（如本地脚本、`.env`、配置）             |
+
+**不能改（共享代码，改了下次同步会被覆盖甚至删除）：**
+
+| 路径                                                                                                                 | 同步行为                                      |
+| -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `src/lead/**`                                                                                                        | 整棵覆盖（`src/lead/routes/` 除外，主机专属） |
+| `sil/ros_bridge/**`、`sil/tools/**`、`sil/docker/**`、`sil/maintain_repo.sh`、`sil/README.md`、`sil/run_loopback.sh` | `sil/` 覆盖，仅 `sil/orin/` 被保留            |
+| `docs/**`                                                                                                            | 整棵覆盖                                      |
+| `pyproject.toml`、`setup.py`、`.env.example`、`.gitignore`、`LICENSE`、`ROS软件在环.md`                              | 用主仓库版本覆盖                              |
+
+> 判断口诀：**除了 `sil/orin/` 和 `lead_orin/README.md`（以及你在根目录自建的东西），其余都不是 Orin 的。**
+> 要改共享行为（agent core、契约、bridge），去主仓库 `lead_v1` 改，再 `bash sil/maintain_repo.sh "msg"` 同步过来。
+
 - **部署**：Orin 上 `git clone lead_orin` 即可，含运行所需全部代码；`.env` 自己填（不提交）。
 - **纪律**：不要直接在 Orin 上改共用代码（`src/lead`、bridge、契约）——下次同步会被主仓库版本覆盖；要改就改主仓库，再同步。
 - 两侧必须用**同一版本的 `lead` 与同一份 `config.yaml`**，否则 parity 不成立。
