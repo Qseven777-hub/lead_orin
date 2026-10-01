@@ -42,7 +42,8 @@ class RosBridge:
         self._subscribe = [
             topic.strip()
             for topic in os.environ.get(
-                "SIL_BRIDGE_SUBSCRIBE", DEFAULT_SUBSCRIBE
+                "SIL_BRIDGE_SUBSCRIBE",
+                DEFAULT_SUBSCRIBE,
             ).split(",")
             if topic.strip()
         ]
@@ -108,7 +109,9 @@ class RosBridge:
             anonymous=False,
         )
         rospy.loginfo(
-            "bridge PULL %s, PUSH %s", self._pull_endpoint, self._push_endpoint
+            "bridge PULL %s, PUSH %s",
+            self._pull_endpoint,
+            self._push_endpoint,
         )
         self._subscribe_all()
         pump = threading.Thread(target=self._compute_to_ros_loop, daemon=True)

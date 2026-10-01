@@ -65,7 +65,7 @@ def encode(message: dict[str, typing.Any]) -> bytes:
     Returns:
         The msgpack payload.
     """
-    return msgpack.packb(_to_wire(message), use_bin_type=True)
+    return typing.cast("bytes", msgpack.packb(_to_wire(message), use_bin_type=True))
 
 
 def decode(payload: bytes) -> dict[str, typing.Any]:

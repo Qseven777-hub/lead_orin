@@ -10,9 +10,9 @@
 
 按约定，Orin 负责"整个 agent（除 CARLA 控制）"，本机负责 CARLA 相关部分：
 
-| 侧 | 负责 |
-|---|---|
-| 本机 (Ubuntu 22.04) | CARLA 仿真、leaderboard evaluator、传感器产生与解码、把原始传感器帧发出去、应用返回的控制、infraction/video/metrics |
+| 侧                  | 负责                                                                                                                                                 |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 本机 (Ubuntu 22.04) | CARLA 仿真、leaderboard evaluator、传感器产生与解码、把原始传感器帧发出去、应用返回的控制、infraction/video/metrics                                  |
 | Orin (Ubuntu 20.04) | agent 计算：`tick`（定位/滤波）、`build_scene_data`、`build_features`、`features_to_batch`、网络前向、`compute_control`（返回 steer/throttle/brake） |
 
 控制以纯数值（steer/throttle/brake）过网，本机再包成 `carla.VehicleControl`，
@@ -35,13 +35,13 @@
 
 所有 ROS 话题都是 `std_msgs/UInt8MultiArray`，`data` 是下列消息的 msgpack 字节。
 
-| 话题 | 方向 | 频率 | 说明 |
-|---|---|---|---|
-| `lead/session` | 本机 → Orin | 每 route 一次 | 路线元信息与导航计划（Orin 无 CARLA 无法自行推导的部分） |
-| `lead/sensor_frame` | 本机 → Orin | 每 tick（20Hz） | 原始传感器帧 |
-| `lead/control` | Orin → 本机 | 每 tick | 车辆控制 |
-| `lead/heartbeat` | Orin → 本机 | ~2Hz | 存活与计时 |
-| `lead/error` | 双向 | 事件 | 错误 |
+| 话题                | 方向        | 频率            | 说明                                                     |
+| ------------------- | ----------- | --------------- | -------------------------------------------------------- |
+| `lead/session`      | 本机 → Orin | 每 route 一次   | 路线元信息与导航计划（Orin 无 CARLA 无法自行推导的部分） |
+| `lead/sensor_frame` | 本机 → Orin | 每 tick（20Hz） | 原始传感器帧                                             |
+| `lead/control`      | Orin → 本机 | 每 tick         | 车辆控制                                                 |
+| `lead/heartbeat`    | Orin → 本机 | ~2Hz            | 存活与计时                                               |
+| `lead/error`        | 双向        | 事件            | 错误                                                     |
 
 ### 3.1 `lead/session`
 
@@ -114,6 +114,6 @@ bash sil/run_loopback.sh
 
 - [ ] 抽 `AgentCore`（CARLA-free 的 agent 核心），本机本地跑通并与基线 parity。
 - [ ] 本机的 leaderboard adapter：发 `sensor_frame`、应用远端 `control`，保留
-      infraction/video/metrics。
+  infraction/video/metrics。
 - [ ] Orin 侧 agent 节点（复用同一 `AgentCore`，见 `orin_setup.md`）。
 - [ ] `run_bench2drive_remote_v2.sh` 与 watchdog 接入。

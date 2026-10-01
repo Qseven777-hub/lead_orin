@@ -34,6 +34,7 @@ dependencies = [
   "lmdb>=1.4,<2",
   "lxml==5.1",
   "matplotlib==3.10.3",
+  "msgpack==1.2.1",
   "nbconvert==7.16.6",
   "nbformat==5.10.4",
   "nbstripout==0.8.2",
@@ -55,6 +56,7 @@ dependencies = [
   "pytest==9.0.2",
   "pytest-cov==7",
   "pyturbojpeg==2.5",
+  "pyzmq==27.2",
   "requests==2.32.5",
   "ruff==0.14.10",
   "scipy==1.14.1",
@@ -165,6 +167,8 @@ reportMissingTypeStubs = false
 executionEnvironments = [
   # The CARLA leaderboard and scenario runner join sys.path only at runtime.
   { root = "src/lead/api/abstract_driving_agent.py", extraPaths = [ "src" ], reportMissingImports = "hint" },
+  # The SIL remote agent imports the leaderboard and scenario runner directly.
+  { root = "src/lead/evaluation/agents/remote", extraPaths = [ "src" ], reportMissingImports = "hint" },
   # Batch keys are config-gated: a decoder only reads keys its config flag guarantees.
   { root = "src/lead/policy", extraPaths = [ "src" ], reportTypedDictNotRequiredAccess = "none" },
   { root = "src/lead/common/image_decoders.py", extraPaths = [ "src" ], reportMissingImports = "hint" },

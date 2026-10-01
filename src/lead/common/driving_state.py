@@ -74,6 +74,8 @@ class DrivingStateBase:
                 plan when omitted.
         """
         if lat_ref is None or lon_ref is None:
+            assert global_plan_world_coord is not None
+            assert global_plan is not None
             lat_ref, lon_ref = gps.find_gps_ref(
                 global_plan_world_coord,
                 global_plan,
@@ -117,6 +119,7 @@ class DrivingStateBase:
         )
 
         self.gps_waypoint_planners_dict: dict[float, RoutePlanner] = {}
+        assert global_plan is not None, "a global plan is required to drive"
         for dist in self.config_expert.simulation.tp_distances:
             planner = RoutePlanner(
                 dist,

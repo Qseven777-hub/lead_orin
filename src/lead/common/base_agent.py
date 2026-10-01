@@ -29,7 +29,7 @@ class BaseAgent(DrivingStateBase):
     _global_plan_world_coord: list[tuple[carla.Transform, Any]]
     _global_plan: list[tuple[dict[str, float], Any]]
 
-    def setup(
+    def setup(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         lead_config: LeadConfig,
         sensor_agent: bool = False,

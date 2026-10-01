@@ -58,7 +58,9 @@ class EulerRotation:
     yaw: float
 
 
-def quaternion_from_carla_rotation(rotation: carla.Rotation) -> Quaternion:
+def quaternion_from_carla_rotation(
+    rotation: EulerRotation | carla.Rotation,
+) -> Quaternion:
     """Convert CARLA Euler rotation to py123d quaternion in ISO 8855 coordinates.
 
     Args:

@@ -2,7 +2,7 @@
 
 Orin 是"车上的计算单元"：接收本机转发的传感器帧，跑驾驶 agent
 （`TransfuserCore` + FP16 TensorRT 引擎），把控制回给本机。接口契约见
-[`sil_ros.md`](sil_ros.md)，整体说明见根目录 [`ROS软件在环.md`](../ROS软件在环.md)。
+[`sil_ros.md`](sil_ros.md)，整体说明见根目录 [`ROS软件在环.md`](../ROS%E8%BD%AF%E4%BB%B6%E5%9C%A8%E7%8E%AF.md)。
 
 > 关键点：Orin 上的 agent 计算是 **CARLA-free** 的——已用 import 闭包验证，
 > 它 **不需要 CARLA / leaderboard / scenario_runner（即不需要 `3rd_party/`）**。
@@ -11,11 +11,11 @@ Orin 是"车上的计算单元"：接收本机转发的传感器帧，跑驾驶 
 
 ### 1.1 必须
 
-| 路径 | 说明 |
-|---|---|
-| `src/lead/` | 整个 lead 包（Orin 节点及其依赖都在里面） |
-| `sil/` | `ros_bridge/bridge_node.py`、`orin/agent_node.py`、`tools/stub_orin_node.py` |
-| `pyproject.toml` + `setup.py` | 安装依赖用 |
+| 路径                          | 说明                                                                         |
+| ----------------------------- | ---------------------------------------------------------------------------- |
+| `src/lead/`                   | 整个 lead 包（Orin 节点及其依赖都在里面）                                    |
+| `sil/`                        | `ros_bridge/bridge_node.py`、`orin/agent_node.py`、`tools/stub_orin_node.py` |
+| `pyproject.toml` + `setup.py` | 安装依赖用                                                                   |
 
 ### 1.2 不需要
 
@@ -24,10 +24,10 @@ Orin 是"车上的计算单元"：接收本机转发的传感器帧，跑驾驶 
 
 ### 1.3 还需要的数据（不是源码）
 
-| 文件 | 说明 |
-|---|---|
+| 文件            | 说明                                                                                                             |
+| --------------- | ---------------------------------------------------------------------------------------------------------------- |
 | checkpoint 目录 | 含 `config.yaml` 和 **恰好一个** `model*.pth`（`PolicyRunner` 的硬要求；跑 engine 时该权重不加载，但文件必须在） |
-| `.engine` | 你在 Orin 上量化出的 FP16 TensorRT 引擎 |
+| `.engine`       | 你在 Orin 上量化出的 FP16 TensorRT 引擎                                                                          |
 
 ### 1.4 交付方式（推荐 git clone，保证版本一致）
 
@@ -68,8 +68,7 @@ conda activate lead_sil
 pip install -e .
 ```
 
-> aarch64 风险：`py123d`（git 依赖）的传递依赖里 `embreex / DracoPy /
-> manifold3d / open3d / ray` 等可能没有现成 wheel，需要逐个确认/编译。这是
+> aarch64 风险：`py123d`（git 依赖）的传递依赖里 `embreex / DracoPy / manifold3d / open3d / ray` 等可能没有现成 wheel，需要逐个确认/编译。这是
 > 第二轮的主要风险点。
 
 TensorRT：`LEAD_QUANTIZED_ENGINE` 指向 `.engine`；`LD_LIBRARY_PATH` 指向
@@ -100,11 +99,11 @@ export ROS_MASTER_URI=http://127.0.0.1:11311 ROS_IP=<Orin IP>
 python3 sil/ros_bridge/bridge_node.py
 ```
 
-| 变量 | 默认 | 作用 |
-|---|---|---|
-| `SIL_BRIDGE_IN` | `5560` | 计算进程 → ROS 的 ZeroMQ 端口 |
-| `SIL_BRIDGE_OUT` | `5561` | ROS → 计算进程的 ZeroMQ 端口 |
-| `SIL_BRIDGE_SUBSCRIBE` | `lead/control,lead/heartbeat,lead/error,lead/session,lead/sensor_frame` | 转发给计算进程的话题 |
+| 变量                   | 默认                                                                    | 作用                          |
+| ---------------------- | ----------------------------------------------------------------------- | ----------------------------- |
+| `SIL_BRIDGE_IN`        | `5560`                                                                  | 计算进程 → ROS 的 ZeroMQ 端口 |
+| `SIL_BRIDGE_OUT`       | `5561`                                                                  | ROS → 计算进程的 ZeroMQ 端口  |
+| `SIL_BRIDGE_SUBSCRIBE` | `lead/control,lead/heartbeat,lead/error,lead/session,lead/sensor_frame` | 转发给计算进程的话题          |
 
 ## 5. 先验证链路（stub，不需要 engine）
 
@@ -130,8 +129,7 @@ python sil/orin/agent_node.py --checkpoint /path/to/checkpoint
 
 节点行为（与 `sil/tools/stub_orin_node.py` 相同的话题）：
 
-- 收到 `lead/session` → 用 `map_name / gnss_uses_transverse_mercator /
-  global_plan_gps / lat_ref / lon_ref / camera_indices` 初始化 `TransfuserCore`
+- 收到 `lead/session` → 用 `map_name / gnss_uses_transverse_mercator / global_plan_gps / lat_ref / lon_ref / camera_indices` 初始化 `TransfuserCore`
   （这些正是本机替 Orin 补齐的"世界专有"信息）；
 - 收到 `lead/sensor_frame` → `core.step(sensors)`，把 `steer/throttle/brake`
   经 `lead/control` 回给本机；
@@ -148,10 +146,10 @@ python sil/orin/agent_node.py --checkpoint /path/to/checkpoint
 
 ## 8. 排错
 
-| 现象 | 排查 |
-|---|---|
-| 话题能列出但收不到 | `ROS_IP` 填错 / 防火墙 |
-| `sensor_frame arrived before session` | 本机 adapter 未发 session（检查本机日志） |
-| 控制迟迟不回 | engine 加载失败 / `LD_LIBRARY_PATH` 未设 / aarch64 依赖缺失 |
-| `Expected exactly one 'model*.pth'` | checkpoint 目录里权重文件不是恰好一个 |
-| `set LEAD_QUANTIZED_ENGINE` 报错 | 未设 `LEAD_QUANTIZED_ENGINE` 或 `LEAD_CONFIG` 未切到 QuantizedTransfuser |
+| 现象                                  | 排查                                                                     |
+| ------------------------------------- | ------------------------------------------------------------------------ |
+| 话题能列出但收不到                    | `ROS_IP` 填错 / 防火墙                                                   |
+| `sensor_frame arrived before session` | 本机 adapter 未发 session（检查本机日志）                                |
+| 控制迟迟不回                          | engine 加载失败 / `LD_LIBRARY_PATH` 未设 / aarch64 依赖缺失              |
+| `Expected exactly one 'model*.pth'`   | checkpoint 目录里权重文件不是恰好一个                                    |
+| `set LEAD_QUANTIZED_ENGINE` 报错      | 未设 `LEAD_QUANTIZED_ENGINE` 或 `LEAD_CONFIG` 未切到 QuantizedTransfuser |

@@ -47,6 +47,16 @@ from lead.config import LeadConfig
 class ScenePipelineMixin:
     """The policy-facing half of a driving agent, without CARLA."""
 
+    # Provided by the composing class: BaseAgent / DrivingStateBase for the
+    # CARLA agent, the SIL core for the Orin.
+    lead_config: LeadConfig
+    policy: AbstractPolicy
+    step: int
+    map_name: str
+    compass: float | None
+    localized_position: npt.NDArray
+    gps_waypoint_planners_dict: dict[float, RoutePlanner]
+
     def _setup_scene_pipeline(
         self,
         policy: AbstractPolicy,
@@ -99,7 +109,7 @@ class ScenePipelineMixin:
         Returns:
             The pre-processed sensor data.
         """
-        sensor_data = super().tick(sensor_data)
+        sensor_data = super().tick(sensor_data)  # pyright: ignore[reportAttributeAccessIssue]
 
         # The scene data carries the per-tick sweeps as the logs store them; the
         # policy's featurization owns the merging and ground removal.
@@ -174,8 +184,12 @@ class ScenePipelineMixin:
                 log_name="",
                 location=self.map_name.split("/")[-1],
             ),
-            past_ego_positions=np.array(self.ego_past_positions[::-1]),
-            past_ego_yaws=np.array(self.ego_past_yaws[::-1]),
+            past_ego_positions=np.array(
+                self.ego_past_positions[::-1],  # pyright: ignore[reportAttributeAccessIssue]
+            ),
+            past_ego_yaws=np.array(
+                self.ego_past_yaws[::-1],  # pyright: ignore[reportAttributeAccessIssue]
+            ),
             previous_target_point=target_points["previous_target_point"],
             target_point=target_points["target_point"],
             next_target_point=target_points["next_target_point"],

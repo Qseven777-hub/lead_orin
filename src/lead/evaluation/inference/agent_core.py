@@ -60,6 +60,10 @@ class PolicyAgentCore(ScenePipelineMixin, DrivingStateBase):
             gnss_uses_transverse_mercator: GNSS projection flag from the host.
             map_name: CARLA map name, replacing ``self._world.get_map().name``.
             device: Device to place the batched inputs on.
+            lat_ref: Precomputed GPS latitude reference, when the host sent one.
+            lon_ref: Precomputed GPS longitude reference, when the host sent one.
+            camera_indices: Leaderboard camera indices the core preprocesses;
+                defaults to the whole rig when omitted.
         """
         self.step = -1
         self.device = device
@@ -98,7 +102,7 @@ class PolicyAgentCore(ScenePipelineMixin, DrivingStateBase):
         raise NotImplementedError
 
     @torch.inference_mode()
-    def step(self, sensor_data: CarlaSensorData) -> ControlCommand:
+    def run_step(self, sensor_data: CarlaSensorData) -> ControlCommand:
         """Run one closed-loop step from raw sensor payloads to a control.
 
         Args:

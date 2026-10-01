@@ -13,8 +13,14 @@ from filterpy.kalman import UnscentedKalmanFilter as UKF
 from lead.common import geometry
 from lead.config import ExpertConfig
 
-if typing.TYPE_CHECKING:
-    import carla
+
+@typing.runtime_checkable
+class ControlLike(typing.Protocol):
+    """steer/throttle/brake: ``ControlCommand`` or ``carla.VehicleControl``."""
+
+    steer: float
+    throttle: float
+    brake: float
 
 
 class KalmanFilter:
@@ -71,7 +77,7 @@ class KalmanFilter:
         noisy_position: npt.NDArray[np.floating],
         compass: float,
         speed: float,
-        control: carla.VehicleControl,
+        control: ControlLike,
     ) -> npt.NDArray[np.floating]:
         """Performs one iteration of predict and update of the UKF.
 

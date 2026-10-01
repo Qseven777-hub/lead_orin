@@ -1,8 +1,7 @@
 import typing
 
-import carla
-
 from lead.api.abstract_driving_agent import AbstractDrivingAgent
+from lead.common.driving_state import ControlCommand
 from lead.evaluation.inference.trackers import WaypointTracker
 from lead.policy.ego_status.dataloader.sample import EgoStatusPrediction
 
@@ -31,7 +30,7 @@ class EgoStatusAgent(AbstractDrivingAgent):
         self,
         prediction: EgoStatusPrediction,
         features: dict[str, typing.Any],
-    ) -> carla.VehicleControl:
+    ) -> ControlCommand:
         """Track the predicted waypoints into a vehicle control.
 
         Args:
@@ -39,13 +38,13 @@ class EgoStatusAgent(AbstractDrivingAgent):
             features: The batched model inputs the prediction was computed on.
 
         Returns:
-            The vehicle control to apply this step.
+            The CARLA-free control.
         """
         steer, throttle, brake = self.waypoint_tracker.step(
             prediction["waypoints"],
             features["speed"].unsqueeze(1),
         )
-        return carla.VehicleControl(
+        return ControlCommand(
             steer=float(steer),
             throttle=float(throttle),
             brake=float(brake),

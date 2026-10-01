@@ -13,12 +13,16 @@ import typing
 import torch
 
 from lead.common.driving_state import ControlCommand
+from lead.config import LeadConfig
 from lead.evaluation.inference.trackers import PathSpeedTracker, WaypointTracker
 from lead.policy.transfuser.transfuser import AgentPrediction, Prediction
 
 
 class TransfuserControlMixin:
     """Track the TransFuser plans into a vehicle control."""
+
+    # Set by the composing agent (or SIL core) during setup.
+    lead_config: LeadConfig
 
     def setup_policy(self, checkpoint_dir: str) -> None:
         """Build the trackers turning the predicted plans into controls.
