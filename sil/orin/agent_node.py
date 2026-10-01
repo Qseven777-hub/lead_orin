@@ -19,8 +19,10 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import sys
 import threading
 import time
+from pathlib import Path
 
 import torch
 import yaml
@@ -28,9 +30,12 @@ import yaml
 from lead.common.logging_setup import setup_logging
 from lead.config import load_lead_config
 from lead.evaluation.agents.transfuser.transfuser_core import TransfuserCore
-from lead.evaluation.inference.policy_runner import PolicyRunner
 from lead.evaluation.sil import codec, contract
 from lead.evaluation.sil.transport import SilTransport
+
+# Orin-local sibling module; ``sil/orin/**`` is preserved by the sync script.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from orin_policy_runner import OrinPolicyRunner  # noqa: E402
 
 setup_logging()
 LOG = logging.getLogger("lead_sil_orin")
@@ -63,7 +68,8 @@ class OrinAgentNode:
         self.device = device
         self.transport = transport
         self.lead_config = load_checkpoint_config(checkpoint_dir)
-        self.runner = PolicyRunner(
+        LOG.info("policy target: %s", self.lead_config.policy.target)
+        self.runner = OrinPolicyRunner(
             lead_config=self.lead_config,
             model_path=checkpoint_dir,
             device=device,
