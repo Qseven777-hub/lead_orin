@@ -1,0 +1,655 @@
+import logging
+import math
+
+import jaxtyping as jt
+import numpy as np
+import torch
+import torch.nn.functional as F
+from torch import nn
+from torch.amp.autocast_mode import autocast
+
+from lead.api.abstract_policy import AuxiliaryLog, TaskLosses
+from lead.common.constants import RadarLabels
+from lead.config import LeadConfig
+from lead.policy.transfuser.dataloader.sample import TransfuserForwardBatch
+from lead.policy.transfuser.utils import ops
+
+logger = logging.getLogger(__name__)
+
+
+def average_displacement_error(
+    predictions: torch.Tensor,
+    observed_traj: torch.Tensor,
+) -> float:
+    """Compute L2 distance between proposed trajectories and ground truth.
+
+    Args:
+        predictions: A numpy array representing model predictions of size: [# batch, # time steps, spatial features].
+        observed_traj: A tensor representing the observed trajectory in the logs of size [# batch, time steps, spatial features]
+
+    Returns:
+        float: L2 distance
+    """
+    predictions_np = predictions.detach().cpu().float().numpy()
+    observed_traj_np = observed_traj.detach().cpu().float().numpy()
+    return float(
+        np.linalg.norm(predictions_np - observed_traj_np, axis=-1).mean(axis=-1).mean(),
+    )
+
+
+def final_displacement_error(
+    predictions: torch.Tensor,
+    observed_traj: torch.Tensor,
+) -> float:
+    """Compute final L2 distance between proposed trajectories and ground truth.
+
+    Args:
+        predictions: Model predictions of size: [# batch, # time steps, spatial features].
+        observed_traj: Observed trajectory in the logs of size [# batch, time steps, spatial features]
+
+    Returns:
+        float: L2 distance
+    """
+    predictions_np = predictions.detach().cpu().float().numpy()
+    observed_traj_np = observed_traj.detach().cpu().float().numpy()
+    return float(
+        np.linalg.norm(
+            predictions_np[:, -1] - observed_traj_np[:, -1],
+            axis=-1,
+        ).mean(),
+    )
+
+
+class PlanningDecoder(nn.Module):
+    # Declared so the type checker resolves the registered buffer here rather
+    # than through nn.Module.__getattr__, which types every attribute as a union.
+    target_speed_classes: torch.Tensor
+
+    def __init__(
+        self,
+        input_bev_channels: int,
+        lead_config: LeadConfig,
+    ) -> None:
+        super().__init__()
+        self.lead_config = lead_config
+        config = lead_config.policy.transfuser
+        self.config = config
+        self.planning_context_encoder = PlanningContextEncoder(
+            lead_config=lead_config,
+            input_bev_channels=input_bev_channels,
+        )
+
+        # Number of queries: route + waypoints + target_speed (flexible based on config)
+        num_queries = 0
+        if self.config.predict_spatial_path:
+            num_queries += self.config.num_route_points_prediction
+        if self.config.predict_temporal_spatial_waypoints:
+            num_queries += self.config.num_ego_pose_prediction
+        if self.config.predict_target_speed:
+            num_queries += 1
+
+        self.query = nn.Parameter(
+            torch.zeros(
+                1,
+                num_queries,
+                self.config.transfuser_token_dim,
+            ),
+        )
+
+        self.transformer_decoder = torch.nn.TransformerDecoder(
+            decoder_layer=nn.TransformerDecoderLayer(
+                self.config.transfuser_token_dim,
+                self.config.transfuser_num_bev_cross_attention_heads,
+                activation=nn.GELU(),
+                batch_first=True,
+            ),
+            num_layers=self.config.transfuser_num_bev_cross_attention_layers,
+            norm=nn.LayerNorm(self.config.transfuser_token_dim),
+        )
+
+        # Only create decoders if needed
+        if self.config.predict_spatial_path:
+            self.route_decoder = nn.Linear(config.transfuser_token_dim, 2)
+        if self.config.predict_temporal_spatial_waypoints:
+            self.wp_decoder = nn.Linear(config.transfuser_token_dim, 2)
+        if self.config.predict_target_speed:
+            self.target_speed_decoder = nn.Sequential(
+                nn.Linear(
+                    self.config.transfuser_token_dim,
+                    self.config.transfuser_token_dim,
+                ),
+                nn.ReLU(inplace=True),
+                nn.Linear(
+                    self.config.transfuser_token_dim,
+                    len(self.config.target_speed_classes),
+                ),
+            )
+
+        nn.init.uniform_(self.query)
+
+        self.register_buffer(
+            "target_speed_classes",
+            torch.tensor(self.config.target_speed_classes, dtype=torch.float32),
+            persistent=False,
+        )
+
+    def forward(
+        self,
+        bev_features: jt.Float[torch.Tensor, "bs bev_dim height_bev width_bev"],
+        radar_features: jt.Float[torch.Tensor, "B Q C"] | None,
+        radar_predictions: jt.Float[torch.Tensor, "B Q 4"] | None,
+        data: TransfuserForwardBatch,
+        log: AuxiliaryLog,
+    ) -> tuple[
+        jt.Float[torch.Tensor, "B n_checkpoints 2"] | None,
+        jt.Float[torch.Tensor, "B n_waypoints 2"] | None,
+        jt.Float[torch.Tensor, "B speed_classes"] | None,
+        jt.Float[torch.Tensor, " B"] | None,
+    ]:
+        """
+        Args:
+            bev_features: BEV features.
+            radar_features: Radar features.
+            radar_predictions: Radar predictions.
+            data: TransfuserForwardBatch
+            log: dict
+        Returns:
+            route: Spatial path.
+            waypoints: Spatial and temporal path.
+            target_speed: Target speed distribution.
+            target_speed_scalar: Target speed in m/s.
+        """
+        context_tokens = self.planning_context_encoder(
+            bev_features=bev_features,
+            radar_logits=radar_features,
+            radar_predictions=radar_predictions,
+            data=data,
+            log=log,
+        )
+
+        bs = context_tokens.shape[0]
+
+        queries = self.transformer_decoder(self.query.repeat(bs, 1, 1), context_tokens)
+
+        # Split the queries flexibly based on what we're predicting
+        query_idx = 0
+        route = None
+        waypoints = None
+        target_speed_dist = None
+        target_speed_scalar = None
+
+        if self.config.predict_spatial_path:
+            route_queries = queries[
+                :,
+                query_idx : query_idx + self.config.num_route_points_prediction,
+            ]
+            route = torch.cumsum(self.route_decoder(route_queries), 1)
+            query_idx += self.config.num_route_points_prediction
+
+        if self.config.predict_temporal_spatial_waypoints:
+            waypoints_queries = queries[
+                :,
+                query_idx : query_idx + self.config.num_ego_pose_prediction,
+            ]
+            waypoints = torch.cumsum(self.wp_decoder(waypoints_queries), 1)
+            query_idx += self.config.num_ego_pose_prediction
+
+        if self.config.predict_target_speed:
+            target_speed_query = queries[:, query_idx]
+            target_speed_dist = self.target_speed_decoder(target_speed_query)
+
+            with autocast(device_type="cuda", enabled=False):
+                target_speed_softmax = torch.softmax(target_speed_dist.float(), dim=-1)
+                target_speed_scalar = decode_two_hot(
+                    target_speed_softmax,
+                    self.target_speed_classes,
+                )
+
+        return (
+            route,
+            waypoints,
+            target_speed_dist,
+            target_speed_scalar,
+        )
+
+    def compute_loss(
+        self,
+        predictions,
+        data: TransfuserForwardBatch,
+        loss: TaskLosses,
+        log: AuxiliaryLog,
+    ) -> None:
+        # Prepare loss dictionary
+        with autocast(device_type="cuda", enabled=False):
+            if self.config.predict_temporal_spatial_waypoints:
+                waypoints_label = data["future_waypoints"][
+                    :,
+                    : self.config.num_ego_pose_prediction,
+                ]
+
+                loss["loss_spatio_temporal_waypoints"] = F.l1_loss(
+                    predictions.future_waypoints.float(),
+                    waypoints_label.float(),
+                    reduction="none",
+                ).mean()
+
+            if self.config.predict_target_speed:
+                brake_label = data["brake"].to(dtype=torch.bool)
+                target_speed_distribution = encode_two_hot(
+                    data["target_speed"],
+                    self.target_speed_classes,
+                    brake=brake_label,
+                )
+                loss["loss_target_speed"] = F.cross_entropy(
+                    predictions.target_speed_distribution.float(),
+                    target_speed_distribution,
+                )
+
+            if self.config.predict_spatial_path:
+                route_label = data["route"]
+                loss["loss_spatial_route"] = F.l1_loss(
+                    predictions.route.float(),
+                    route_label.float(),
+                )  # ADE
+                loss["loss_spatial_route"] += F.l1_loss(
+                    predictions.route[:, -1, :].float(),
+                    route_label[:, -1, :].float(),
+                )  # FDE
+
+        gradient_step = data.get("current_gradient_step")
+        log_every = self.lead_config.training.experiment.log_scalars_every_n_steps
+        if gradient_step is not None and ((gradient_step + 1) % log_every) == 0:
+            if self.config.predict_spatial_path:
+                route_label = data["route"]
+                log.update(
+                    {
+                        "metric/route_ade": average_displacement_error(
+                            predictions.route,
+                            route_label,
+                        ),
+                        "metric/route_fde": final_displacement_error(
+                            predictions.route,
+                            route_label,
+                        ),
+                    },
+                )
+
+            if self.config.predict_target_speed:
+                brake_label = data["brake"].to(dtype=torch.bool)
+                target_speed_distribution = encode_two_hot(
+                    data["target_speed"],
+                    self.target_speed_classes,
+                    brake=brake_label,
+                )
+                target_speed_labels = decode_two_hot(
+                    target_speed_distribution,
+                    self.target_speed_classes,
+                )
+                log.update(
+                    {
+                        "metric/target_speed_error": torch.mean(
+                            torch.abs(
+                                predictions.target_speed_scalar - target_speed_labels,
+                            ),
+                        ).item(),
+                        "metric/target_speed_correlation": torch.corrcoef(
+                            torch.stack(
+                                [
+                                    predictions.target_speed_scalar,
+                                    target_speed_labels,
+                                ],
+                            ),
+                        )[0, 1].item(),
+                    },
+                )
+
+            if self.config.predict_temporal_spatial_waypoints:
+                waypoints_label = data["future_waypoints"][
+                    :,
+                    : self.config.num_ego_pose_prediction,
+                ]
+                log.update(
+                    {
+                        "metric/waypoints_ade": average_displacement_error(
+                            predictions.future_waypoints,
+                            waypoints_label,
+                        ),
+                        "metric/waypoints_fde": final_displacement_error(
+                            predictions.future_waypoints,
+                            waypoints_label,
+                        ),
+                    },
+                )
+
+
+def decode_two_hot(
+    two_hot_label: jt.Float[torch.Tensor, "B C"],
+    class_values: jt.Float[torch.Tensor, " C"],
+) -> jt.Float[torch.Tensor, " B"]:
+    """Decode a two-hot encoded tensor into a scalar representation.
+
+    Args:
+        two_hot_label: The two-hot encoded tensor. Must be between 0 and 1 and sum to 1 along the last dimension.
+        class_values: Class bin values on the same device (e.g., a registered buffer).
+
+    Returns:
+        The decoded scalar tensor.
+    """
+    return (two_hot_label * class_values.to(two_hot_label.dtype)).sum(dim=-1)
+
+
+def encode_two_hot(
+    scalar_values: jt.Float[torch.Tensor, " B"],
+    class_values: jt.Float[torch.Tensor, " C"],
+    brake: jt.Bool[torch.Tensor, " B"],
+) -> jt.Float[torch.Tensor, "B C"]:
+    """Encode scalar values into two-hot representation with linear interpolation.
+
+    Fully vectorized with no host synchronization: values are clamped into the
+    class range, so out-of-range scalars land one-hot on the boundary bins.
+
+    Args:
+        scalar_values: Non-negative scalar values to encode (e.g., speeds).
+        class_values: Ascending class bin values on the same device.
+        brake: Boolean mask; positions where True are encoded as class 0.
+
+    Returns:
+        Two-hot encoded distribution.
+    """
+    num_classes = class_values.shape[0]
+    class_values = class_values.to(scalar_values.dtype)
+    clamped = scalar_values.clamp(max=class_values[-1])
+    upper_idx = torch.searchsorted(
+        class_values,
+        clamped.contiguous(),
+        right=True,
+    ).clamp(max=num_classes - 1)
+    lower_idx = upper_idx - 1
+    lower_val = class_values[lower_idx]
+    upper_val = class_values[upper_idx]
+    lower_weight = (upper_val - clamped) / (upper_val - lower_val)
+    upper_weight = (clamped - lower_val) / (upper_val - lower_val)
+    labels = torch.zeros(
+        scalar_values.shape[0],
+        num_classes,
+        dtype=scalar_values.dtype,
+        device=scalar_values.device,
+    )
+    labels.scatter_(1, lower_idx.unsqueeze(1), lower_weight.unsqueeze(1))
+    labels.scatter_(1, upper_idx.unsqueeze(1), upper_weight.unsqueeze(1))
+    brake_encoding = torch.zeros_like(labels)
+    brake_encoding[:, 0] = 1.0
+    return torch.where(brake.unsqueeze(1), brake_encoding, labels)
+
+
+class PlanningContextEncoder(nn.Module):
+    # Declared so the type checker resolves the registered buffer here rather
+    # than through nn.Module.__getattr__, which types every attribute as a union.
+    target_point_normalization_xy: torch.Tensor
+
+    def __init__(
+        self,
+        lead_config: LeadConfig,
+        input_bev_channels: int,
+    ) -> None:
+        super().__init__()
+        self.lead_config = lead_config
+        config = lead_config.policy.transfuser
+        self.config = config
+
+        self.num_status_tokens = 0
+
+        if self.config.use_velocity:
+            self.num_status_tokens += 1
+            self.velocity_encoder = nn.Sequential(
+                nn.Linear(1, self.config.transfuser_token_dim),
+            )
+            logger.info("Using velocity encoder.")
+
+        if self.config.use_target_point:
+            self.num_status_tokens += 1
+            self.tp_encoder = nn.Linear(2, config.transfuser_token_dim)
+            logger.info("Using target point encoder.")
+
+        if self.config.use_previous_target_point:
+            self.num_status_tokens += 1
+            logger.info("Using previous target point encoder.")
+
+        if self.config.use_next_target_point:
+            self.num_status_tokens += 1
+            logger.info("Using next target point encoder.")
+
+        if (
+            self.lead_config.expert.sensor_rig.use_radars
+            and self.config.use_radar_detection
+            and self.config.use_radar_detection
+        ):
+            self.num_status_tokens += self.config.num_radar_queries
+            self.radar_encoder = nn.Linear(
+                self.config.radar_token_dim,
+                config.transfuser_token_dim,
+            )
+            logger.info(
+                f"Using radar encoder with {self.config.num_radar_queries} tokens.",
+            )
+
+        self.cosine_pos_embeding = PositionEmbeddingSine(
+            lead_config,
+            self.config.transfuser_token_dim // 2,
+            normalize=True,
+        )
+        self.status_pos_embedding = nn.Parameter(
+            torch.zeros(1, self.num_status_tokens, self.config.transfuser_token_dim),
+        )
+
+        self.dimension_adapter = nn.Conv2d(
+            input_bev_channels,
+            self.config.transfuser_token_dim,
+            kernel_size=1,
+        )
+        self.reset_parameters()
+
+        self.register_buffer(
+            "target_point_normalization_xy",
+            torch.tensor(self.config.target_point_normalization_xy),
+            persistent=False,
+        )
+
+    def reset_parameters(self):
+        nn.init.uniform_(self.status_pos_embedding)
+
+    def forward(
+        self,
+        bev_features: jt.Float[torch.Tensor, "B C H W"],
+        radar_logits: jt.Float[torch.Tensor, "B Q radar_dim"] | None,
+        radar_predictions: jt.Float[torch.Tensor, "B Q 4"] | None,
+        data: TransfuserForwardBatch,
+        log: AuxiliaryLog,
+    ) -> jt.Float[torch.Tensor, "B N D"]:
+        """
+        Args:
+            bev_features: Raw BEV features.
+            radar_logits: Radar logits.
+            radar_predictions: Radar predictions.
+            data: TransfuserForwardBatch
+            log: dict
+        Returns:
+            context_tokens: Output tokens for planning transformer decoder.
+        """
+        status_tokens = []
+
+        # Encode speed
+        if self.config.use_velocity:
+            velocity = data["speed"].reshape(-1, 1)
+            velocity_token = self.velocity_encoder(
+                velocity / self.config.max_speed_mps,
+            ).reshape(
+                -1,
+                1,
+                self.config.transfuser_token_dim,
+            )  # (bs, 1, transfuser_token_dim)
+            status_tokens.append(velocity_token)
+
+        # Encode target point
+        if self.config.use_target_point:
+            target_point = data["target_point"]
+            target_point = target_point / self.target_point_normalization_xy
+            tp_token = self.tp_encoder(target_point).reshape(
+                -1,
+                1,
+                self.config.transfuser_token_dim,
+            )  # (bs, 1, transfuser_token_dim)
+            status_tokens.append(tp_token)
+
+        if self.config.use_previous_target_point:
+            previous_tp = data["previous_target_point"]
+            previous_tp = previous_tp / self.target_point_normalization_xy
+            previous_tp_token = self.tp_encoder(previous_tp).reshape(
+                -1,
+                1,
+                self.config.transfuser_token_dim,
+            )  # (bs, 1, transfuser_token_dim)
+            status_tokens.append(previous_tp_token)
+
+        if self.config.use_next_target_point:
+            next_tp = data["next_target_point"]
+            next_tp = next_tp / self.target_point_normalization_xy
+            next_tp_token = self.tp_encoder(next_tp).reshape(
+                -1,
+                1,
+                self.config.transfuser_token_dim,
+            )  # (bs, 1, transfuser_token_dim)
+            status_tokens.append(next_tp_token)
+
+        # Encode radar
+        if (
+            self.lead_config.expert.sensor_rig.use_radars
+            and self.config.use_radar_detection
+            and self.config.use_radar_detection
+        ):
+            assert radar_predictions is not None
+            radar_token = self.radar_encoder(radar_logits).reshape(
+                -1,
+                self.config.num_radar_queries,
+                self.config.transfuser_token_dim,
+            )  # (bs, num_radar_queries, transfuser_token_dim)
+            radar_pos_embed = ops.gen_sineembed_for_position(
+                ops.unit_normalize_bev_points(
+                    radar_predictions[..., [RadarLabels.X, RadarLabels.Y]].reshape(
+                        -1,
+                        2,
+                    ),
+                    self.lead_config,
+                ),
+                self.config.transfuser_token_dim,
+            ).reshape(
+                radar_token.shape,
+            )  # (bs, num_radar_queries, transfuser_token_dim)
+            radar_token = (
+                radar_token + radar_pos_embed
+            )  # (bs, num_radar_queries, transfuser_token_dim)
+            status_tokens.append(radar_token)
+
+        # Concatenate status tokens if any
+        concatenated_status_tokens = (
+            torch.cat(status_tokens, dim=1) if status_tokens else None
+        )  # (bs, num_status_tokens, transfuser_token_dim)
+
+        # Process BEV features
+        context_tokens = self.dimension_adapter(
+            bev_features,
+        )  # (bs, transfuser_token_dim, height, width)
+
+        # Concatenate and add positional embeddings
+        if concatenated_status_tokens is not None:
+            context_tokens = context_tokens + self.cosine_pos_embeding(
+                context_tokens,
+            )  # (bs, transfuser_token_dim, height, width)
+            context_tokens = torch.flatten(
+                context_tokens,
+                start_dim=2,
+            )  # (bs, transfuser_token_dim, height * width)
+            context_tokens = torch.permute(
+                context_tokens,
+                (0, 2, 1),
+            )  # (bs, height * width, transfuser_token_dim)
+
+            concatenated_status_tokens = (
+                concatenated_status_tokens + self.status_pos_embedding
+            )  # (bs, num_status_tokens, transfuser_token_dim)
+            context_tokens = torch.cat(
+                [context_tokens, concatenated_status_tokens],
+                dim=1,
+            )  # (bs, height * width + num_status_tokens, transfuser_token_dim)
+
+        return context_tokens
+
+
+class PositionEmbeddingSine(nn.Module):
+    def __init__(
+        self,
+        lead_config: LeadConfig,
+        num_pos_feats: int = 64,
+        temperature: int = 10000,
+        normalize: bool = False,
+        scale: float | None = None,
+    ) -> None:
+        super().__init__()
+        self.lead_config = lead_config
+        self.num_pos_feats = num_pos_feats
+        self.temperature = temperature
+        self.normalize = normalize
+        if scale is not None and normalize is False:
+            raise ValueError("normalize should be True if scale is passed")
+        if scale is None:
+            scale = 2 * math.pi
+        self.scale = scale
+        self._cached_pos: torch.Tensor | None = None
+
+    def forward(self, tensor: torch.Tensor):
+        # The embedding depends only on the spatial size, which is constant per
+        # run: build it once and broadcast over the batch dimension.
+        _, _, h, w = tensor.shape
+        cached = self._cached_pos
+        if (
+            cached is None
+            or cached.shape[-2:] != (h, w)
+            or cached.device != tensor.device
+        ):
+            cached = self._build_embedding(h, w, tensor.device)
+            self._cached_pos = cached
+        return cached
+
+    def _build_embedding(
+        self,
+        h: int,
+        w: int,
+        device: torch.device,
+    ) -> torch.Tensor:
+        not_mask = torch.ones((1, h, w), device=device)
+        y_embed = not_mask.cumsum(1, dtype=torch.float32)
+        x_embed = not_mask.cumsum(2, dtype=torch.float32)
+        if self.normalize:
+            eps = 1e-6
+            y_embed = y_embed / (y_embed[:, -1:, :] + eps) * self.scale
+            x_embed = x_embed / (x_embed[:, :, -1:] + eps) * self.scale
+
+        dim_t = torch.arange(self.num_pos_feats, dtype=torch.float32, device=device)
+        dim_t = self.temperature ** (
+            2 * (torch.div(dim_t, 2, rounding_mode="floor")) / self.num_pos_feats
+        )
+
+        pos_x = x_embed[:, :, :, None] / dim_t
+        pos_y = y_embed[:, :, :, None] / dim_t
+        pos_x = torch.stack(
+            (pos_x[:, :, :, 0::2].sin(), pos_x[:, :, :, 1::2].cos()),
+            dim=4,
+        ).flatten(3)
+        pos_y = torch.stack(
+            (pos_y[:, :, :, 0::2].sin(), pos_y[:, :, :, 1::2].cos()),
+            dim=4,
+        ).flatten(3)
+        pos = torch.cat((pos_y, pos_x), dim=3).permute(0, 3, 1, 2)
+        return pos.to(
+            self.lead_config.training.optimization.torch_dtype,
+        ).contiguous()

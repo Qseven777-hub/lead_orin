@@ -1,0 +1,182 @@
+"""TransFuser control: predictions to steering, throttle and brake.
+
+CARLA-free, so both the CARLA agent (:class:`TransfuserAgent`) and the SIL core
+(:class:`TransfuserCore`) share one implementation and cannot drift. The control
+is returned as a :class:`~lead.common.driving_state.ControlCommand`; the CARLA
+agent wraps it into a ``carla.VehicleControl`` at the leaderboard boundary.
+"""
+
+from __future__ import annotations
+
+import typing
+
+import torch
+
+from lead.common.driving_state import ControlCommand
+from lead.evaluation.inference.trackers import PathSpeedTracker, WaypointTracker
+from lead.policy.transfuser.transfuser import AgentPrediction, Prediction
+
+
+class TransfuserControlMixin:
+    """Track the TransFuser plans into a vehicle control."""
+
+    def setup_policy(self, checkpoint_dir: str) -> None:
+        """Build the trackers turning the predicted plans into controls.
+
+        Args:
+            checkpoint_dir: Directory holding the trained model checkpoint.
+        """
+        self.waypoint_tracker = WaypointTracker(self.lead_config)
+        self.path_speed_tracker = PathSpeedTracker(self.lead_config)
+
+    def compute_control(
+        self,
+        prediction: Prediction,
+        features: dict[str, typing.Any],
+    ) -> ControlCommand:
+        """Track the TransFuser plans into a vehicle control.
+
+        Args:
+            prediction: Raw prediction of the TransFuser policy.
+            features: The batched model inputs the prediction was computed on.
+
+        Returns:
+            The CARLA-free control.
+        """
+        self.agent_prediction = self._build_agent_prediction(prediction, features)
+        return ControlCommand(
+            steer=float(self.agent_prediction.steer),
+            throttle=float(self.agent_prediction.throttle),
+            brake=float(self.agent_prediction.brake),
+        )
+
+    def _post_process_target_speed(
+        self,
+        prediction: Prediction,
+    ) -> torch.Tensor | None:
+        """Apply the test-time brake threshold and speed lowering to the target speed.
+
+        Args:
+            prediction: Raw predictions of the model.
+
+        Returns:
+            The target speed to track, or None if the model does not predict it.
+        """
+        if (
+            prediction.target_speed_scalar is None
+            or prediction.target_speed_distribution is None
+        ):
+            return None
+
+        target_speed = prediction.target_speed_scalar.reshape(1, 1)
+        target_speed_distribution = torch.softmax(
+            prediction.target_speed_distribution.float(),
+            dim=-1,
+        )
+        if (
+            target_speed_distribution[0, 0]
+            > self.lead_config.evaluation.inference.brake_threshold
+        ):  # Brake if we are confident enough.
+            target_speed = torch.zeros_like(target_speed)
+        if self.lead_config.evaluation.inference.lower_target_speed:
+            target_speed = (
+                target_speed
+                * self.lead_config.evaluation.inference.lower_target_speed_factor
+            )
+        return target_speed
+
+    def _build_agent_prediction(
+        self,
+        prediction: Prediction,
+        features: dict[str, typing.Any],
+    ) -> AgentPrediction:
+        """Track the predicted plans and select controls per the modality knobs.
+
+        Args:
+            prediction: Raw predictions of the model.
+            features: The batched model inputs the prediction was computed on.
+
+        Returns:
+            The model prediction extended with the vehicle controls.
+        """
+        ego_speed = features["speed"].unsqueeze(1)
+        target_speed = self._post_process_target_speed(prediction)
+
+        steer = throttle = brake = waypoints_steer = waypoints_throttle = (
+            waypoints_brake
+        ) = route_steer = target_speed_throttle = target_speed_brake = None
+
+        if prediction.route is not None and target_speed is not None:
+            route_steer, target_speed_throttle, target_speed_brake = (
+                self.path_speed_tracker.step(
+                    prediction.route,
+                    target_speed,
+                    ego_speed,
+                )
+            )
+        if prediction.future_waypoints is not None:
+            waypoints_steer, waypoints_throttle, waypoints_brake = (
+                self.waypoint_tracker.step(
+                    prediction.future_waypoints,
+                    ego_speed,
+                )
+            )
+
+        # Select which high-level modality we want to use for each control
+        steer_modality = self.lead_config.evaluation.inference.steer_modality
+        if steer_modality == "route":
+            steer = route_steer
+        elif steer_modality == "waypoint":
+            steer = waypoints_steer
+        else:
+            raise ValueError(f"Invalid steer_modality: {steer_modality}")
+        if steer is None:
+            raise ValueError(
+                f"steer_modality is {steer_modality!r} but the model did not predict it",
+            )
+
+        throttle_modality = self.lead_config.evaluation.inference.throttle_modality
+        if throttle_modality == "target_speed":
+            throttle = target_speed_throttle
+        elif throttle_modality == "waypoint":
+            throttle = waypoints_throttle
+        else:
+            raise ValueError(f"Invalid throttle_modality: {throttle_modality}")
+        if throttle is None:
+            raise ValueError(
+                f"throttle_modality is {throttle_modality!r} but the model did not predict it",
+            )
+
+        brake_modality = self.lead_config.evaluation.inference.brake_modality
+        if brake_modality == "target_speed":
+            brake = target_speed_brake
+        elif brake_modality == "waypoint":
+            brake = waypoints_brake
+        else:
+            raise ValueError(f"Invalid brake_modality: {brake_modality}")
+        if brake is None:
+            raise ValueError(
+                f"brake_modality is {brake_modality!r} but the model did not predict it",
+            )
+
+        # Turn off throttle if we brake
+        if brake > 0.0:
+            throttle = 0.0
+            if (
+                ego_speed < 0.01
+            ):  # When we don't move we don't want the angle error to accumulate in the integral
+                steer = 0.0
+
+        return AgentPrediction(
+            prediction=prediction,
+            target_speed=target_speed,
+            steer=steer,
+            throttle=throttle,
+            brake=brake,
+            waypoints_steer=waypoints_steer,
+            waypoints_throttle=waypoints_throttle,
+            waypoints_brake=waypoints_brake,
+            route_steer=route_steer,
+            target_speed_throttle=target_speed_throttle,
+            target_speed_brake=target_speed_brake,
+        )

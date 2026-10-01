@@ -1,0 +1,86 @@
+# Python build & bytecode
+**/__pycache__/
+*$py.class
+*.egg
+*.egg-info/
+*.py[cod]
+*.so
+.eggs/
+.Python
+build/
+dist/
+eggs/
+
+# Tool caches
+.coverage
+.coverage.*
+.import_linter_cache
+.mypy_cache/
+.pytest_cache/
+.ruff_cache
+coverage.xml
+dmypy.json
+htmlcov/
+
+# Environments
+.venv
+ENV/
+env/
+venv/
+
+# Editor & OS
+.DS_Store
+.idea
+.ipynb_checkpoints
+
+# Run artifacts
+*.log
+.env
+/outputs/
+/notebooks/*.mp4
+
+# Cluster & NFS artifacts
+.nfs*
+core.*
+
+# Agent and sandbox artifacts. Duplicated from the private root .gitignore on purpose:
+# published standalone this repo has no parent file to inherit them from.
+*/**/.claude
+**/.cc-writes/
+.bash_profile
+.bashrc
+.claude/
+.gitconfig
+.gitmodules
+.mcp.json
+.profile
+.ripgreprc
+.zprofile
+.zshrc
+
+# CARLA's agents/ navigation helpers (basic/behavior agent, planners) aren't part of the
+# `carla` pip package, so check them in instead of re-downloading the whole simulator build.
+3rd_party/CARLA/*
+!3rd_party/CARLA/standard_0916/
+3rd_party/CARLA/standard_0916/*
+!3rd_party/CARLA/standard_0916/PythonAPI/
+3rd_party/CARLA/standard_0916/PythonAPI/*
+!3rd_party/CARLA/standard_0916/PythonAPI/carla/
+3rd_party/CARLA/standard_0916/PythonAPI/carla/*
+!3rd_party/CARLA/standard_0916/PythonAPI/carla/agents/
+3rd_party/CARLA/standard_0916/PythonAPI/carla/agents/**/__pycache__/
+
+# Repo-root catch-alls: a new script or data file dropped at the top level is untracked
+# unless it is named here. `setup.py` is the only current exception.
+/*.csv
+/*.json
+/*.mp4
+/*.png
+/*.prof
+/*.py
+/*.sh
+/*.sif
+!/setup.py
+
+# Model artifacts / weights (too large for GitHub)
+model_quantization/
