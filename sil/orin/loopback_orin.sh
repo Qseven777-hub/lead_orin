@@ -25,7 +25,10 @@ source /opt/ros/noetic/setup.bash
 ROSCORE_PID=""; BRIDGE_PID=""; STUB_PID=""
 cleanup() {
   for pid in "$STUB_PID" "$BRIDGE_PID" "$ROSCORE_PID"; do
-    [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null
+    if [ -n "$pid" ]; then
+      pkill -9 -P "$pid" 2>/dev/null   # e.g. roscore's rosmaster/rosout children
+      kill -9 "$pid" 2>/dev/null
+    fi
   done
   return 0
 }

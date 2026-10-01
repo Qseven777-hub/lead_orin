@@ -40,10 +40,13 @@ if [ -z "${CHECKPOINT:-}" ]; then echo "set CHECKPOINT" >&2; exit 2; fi
 if [ -z "${LEAD_QUANTIZED_ENGINE:-}" ]; then echo "set LEAD_QUANTIZED_ENGINE" >&2; exit 2; fi
 export CHECKPOINT LEAD_QUANTIZED_ENGINE LEAD_CONFIG LEAD_DEVICE SIL_ENGINE_ENDPOINT="$ENGINE_ENDPOINT"
 
-ROSCORE_PID=""; BRIDGE_PID=""; ENGINE_PID=""; AGENT_PID=""
+ROSCORE_PID=""; BRIDGE_PID=""; ENGINE_PID=""; AGENT_PID=""; WATCH_PID=""
 cleanup() {
-  for pid in "$AGENT_PID" "$ENGINE_PID" "$BRIDGE_PID" "$ROSCORE_PID"; do
-    [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null
+  for pid in "$WATCH_PID" "$AGENT_PID" "$ENGINE_PID" "$BRIDGE_PID" "$ROSCORE_PID"; do
+    if [ -n "$pid" ]; then
+      pkill -9 -P "$pid" 2>/dev/null   # e.g. roscore's rosmaster/rosout children
+      kill -9 "$pid" 2>/dev/null
+    fi
   done
   return 0
 }
@@ -88,6 +91,43 @@ python -u "$ORIN_DIR/agent_node.py" \
   --out-endpoint "tcp://127.0.0.1:5560" \
   >"$LOG_DIR/agent.log" 2>&1 &
 AGENT_PID=$!
+
+# Wait until the policy is built and the node is listening, then print the
+# one-glance self-check the host operator needs.
+for _ in $(seq 1 300); do
+  grep -q "Orin SIL agent node listening" "$LOG_DIR/agent.log" 2>/dev/null && break
+  kill -0 "$AGENT_PID" 2>/dev/null || { echo "[orin] agent died; see $LOG_DIR/agent.log"; tail -20 "$LOG_DIR/agent.log"; exit 1; }
+  sleep 0.5
+done
+if ! grep -q "Orin SIL agent node listening" "$LOG_DIR/agent.log" 2>/dev/null; then
+  echo "[orin] agent not listening yet; see $LOG_DIR/agent.log"; exit 1
+fi
+POLICY_TARGET="$(grep -a "policy target:" "$LOG_DIR/agent.log" | tail -1 | sed 's/.*policy target: //')"
+
+echo "[orin] ================== self-check =================="
+echo "[orin] roscore:        up   ($ROS_MASTER_URI)"
+if [ "$SKIP_ROS" != "1" ]; then echo "[orin] bridge:         up"; else echo "[orin] bridge:         skipped (SKIP_ROS=1)"; fi
+echo "[orin] engine service: READY ($ENGINE_ENDPOINT)"
+echo "[orin] agent:          listening (policy target: $POLICY_TARGET)"
+echo "[orin] waiting for host: lead/session (ROS_IP=$ROS_IP)"
+echo "[orin] ================================================"
+
+# Report the two host-driven milestones as they happen.
+(
+  seen_core=0; seen_ctrl=0
+  while kill -0 "$AGENT_PID" 2>/dev/null; do
+    if [ "$seen_core" = 0 ] && grep -q "core ready" "$LOG_DIR/agent.log" 2>/dev/null; then
+      echo "[orin] + session received: $(grep -a 'core ready' "$LOG_DIR/agent.log" | tail -1 | sed 's/.*\[INFO\] //')"
+      seen_core=1
+    fi
+    if [ "$seen_ctrl" = 0 ] && grep -q "first control sent" "$LOG_DIR/agent.log" 2>/dev/null; then
+      echo "[orin] + first control:   $(grep -a 'first control sent' "$LOG_DIR/agent.log" | tail -1 | sed 's/.*\[INFO\] //')"
+      seen_ctrl=1
+    fi
+    sleep 1
+  done
+) &
+WATCH_PID=$!
 
 echo "[orin] running. logs: $LOG_DIR (agent.log, engine.log, bridge.log, roscore.log)"
 wait "$AGENT_PID"

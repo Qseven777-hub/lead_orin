@@ -76,6 +76,7 @@ class OrinAgentNode:
         )
         self.core: TransfuserCore | None = None
         self._stop = threading.Event()
+        self._controls_sent = 0
 
     def _build_core(self, session: dict) -> None:
         global_plan = [
@@ -143,6 +144,16 @@ class OrinAgentNode:
                 ),
             ),
         )
+        self._controls_sent += 1
+        if self._controls_sent == 1:
+            LOG.info(
+                "first control sent: seq=%s steer=%.3f throttle=%.3f brake=%.3f infer_ms=%.1f",
+                int(frame["seq"]),
+                command.steer,
+                command.throttle,
+                command.brake,
+                infer_ms,
+            )
 
     def _heartbeat_loop(self) -> None:
         seq = 0
