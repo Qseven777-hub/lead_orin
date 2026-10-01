@@ -161,3 +161,32 @@ python sil/orin/agent_node.py --checkpoint /path/to/checkpoint
 **Orin 要做的事**：装 ROS1 Noetic（跑 bridge）+ Python 3.10 lead 环境（跑
 agent 节点）→ 起 `bridge_node.py` → 起 `agent_node.py`（`LEAD_QUANTIZED_ENGINE` +
 `LEAD_CONFIG` 选 QuantizedTransfuser）。详见 [`docs/orin_setup.md`](docs/orin_setup.md)。
+
+## 10. 仓库维护
+
+代码分两个仓库：
+
+| 仓库 | 内容 | 谁改 |
+|---|---|---|
+| `lead_v1`（主仓库） | 共用代码：`src/lead/**`、`sil/ros_bridge/**`、`sil/tools/**`、`sil/docker/**`、`sil/maintain_repo.sh`、`docs/`、构建文件 | 在本机改 |
+| `lead_orin`（Orin 仓库） | Orin 专属：`sil/orin/**`（agent 节点）、它自己的 `README.md` | 在 Orin 改 |
+
+- **部署**：Orin 上 `git clone lead_orin` 即可，含运行所需全部代码；`.env` 自己填（不提交）。
+- **纪律**：不要直接在 Orin 上改共用代码（`src/lead`、bridge、契约）——下次同步会被主仓库版本覆盖；要改就改主仓库，再同步。
+- 两侧必须用**同一版本的 `lead` 与同一份 `config.yaml`**，否则 parity 不成立。
+
+**收工前一条命令**（两端通用，自动判断角色）：
+
+```bash
+# 本机：自检 + 提交推送 lead_v1 + 同步并推送 lead_orin
+cd ~/gqzl/cvci_project/lead_v1
+bash sil/maintain_repo.sh "你的提交信息"
+
+# Orin：只提交推送 lead_orin
+cd ~/lead_orin
+bash sil/maintain_repo.sh "你的提交信息"
+```
+
+可选环境变量：`SKIP_CHECKS=1`（跳过 ruff）、`RUN_TESTS=1`（额外跑评测单测）、
+`INCLUDE_3RDPARTY=1`（连 `3rd_party/` 一起提交，默认排除）、
+`ORIN_REPO=/path/to/lead_orin`（指定 Orin 仓库路径，默认 `../lead_orin`）。
