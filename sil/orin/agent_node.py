@@ -122,7 +122,7 @@ class OrinAgentNode:
         # Keep the core's step identical to the host's, so its timestamps and
         # temporal window line up with a local run.
         self.core.step = int(frame["step"]) - 1
-        command = self.core.step(frame["sensors"])
+        command = self.core.run_step(frame["sensors"])
         infer_ms = (time.perf_counter() - started) * 1000.0
         self.transport.send(
             contract.TOPIC_CONTROL,
