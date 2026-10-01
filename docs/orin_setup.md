@@ -31,20 +31,23 @@ Orin 是"车上的计算单元"：接收本机转发的传感器帧，跑驾驶 
 
 ### 1.4 交付方式（推荐 git clone，保证版本一致）
 
+Orin 专属仓库 `lead_orin` 正好就是这个子集，且同步脚本已把它的
+`pyproject.toml` 改成不含 `carla` / `open3d` / `pyqt5`（这三个在 aarch64 上没有
+wheel，Orin 的 agent 节点运行时也用不到）：
+
 ```bash
 # Orin 上
-git clone <lead 仓库> lead_v1
-cd lead_v1
-git checkout <本机相同的 commit>
+git clone <lead_orin 仓库> lead_orin
+cd lead_orin
 ```
 
-若不能 clone，最小打包：
+若不能 clone，最小打包（从 `lead_orin` 打包，避免带上 3rd_party 与 x86-only 依赖）：
 
 ```bash
 # 本机
 rsync -a --exclude 3rd_party --exclude outputs --exclude data \
       --exclude tests --exclude notebooks --exclude docs \
-      ./ <orin>:/home/<user>/lead_v1/
+      ./ <orin>:/home/<user>/lead_orin/
 ```
 
 ## 2. 环境
