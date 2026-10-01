@@ -59,13 +59,13 @@
 原来每个 tick 的计算散在 `BaseAgent` / `AbstractDrivingAgent` / `TransfuserAgent` 里，
 其中大部分与 CARLA 无关。现在抽成：
 
-| 模块                                                          | 角色                                                                            |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `src/lead/common/driving_state.py`                            | `DrivingStateBase`：定位/Kalman/路线规划/`tick`/历史位姿；`ControlCommand`      |
-| `src/lead/api/agent_scene.py`                                 | `ScenePipelineMixin`：`tick` 队列、`build_scene_data`、相机/雷达/激光处理       |
-| `src/lead/evaluation/inference/agent_core.py`                 | `PolicyAgentCore`：把两步编排成 `step()`（tick→scene→features→forward→control） |
-| `src/lead/evaluation/agents/transfuser/transfuser_control.py` | `TransfuserControlMixin`：prediction → steer/throttle/brake                     |
-| `src/lead/evaluation/agents/transfuser/transfuser_core.py`    | `TransfuserCore`：Orin 上跑的完整 core                                          |
+| 模块                                                          | 角色                                                                                |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `src/lead/common/driving_state.py`                            | `DrivingStateBase`：定位/Kalman/路线规划/`tick`/历史位姿；`ControlCommand`          |
+| `src/lead/api/agent_scene.py`                                 | `ScenePipelineMixin`：`tick` 队列、`build_scene_data`、相机/雷达/激光处理           |
+| `src/lead/evaluation/inference/agent_core.py`                 | `PolicyAgentCore`：把两步编排成 `run_step()`（tick→scene→features→forward→control） |
+| `src/lead/evaluation/agents/transfuser/transfuser_control.py` | `TransfuserControlMixin`：prediction → steer/throttle/brake                         |
+| `src/lead/evaluation/agents/transfuser/transfuser_core.py`    | `TransfuserCore`：Orin 上跑的完整 core                                              |
 
 本机原有的
 `BaseAgent` / `AbstractDrivingAgent` / `TransfuserAgent` **改为继承这些共享模块**，

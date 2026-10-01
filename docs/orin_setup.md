@@ -65,6 +65,8 @@ sudo apt install -y ros-noetic-ros-base python3-zmq
 conda create -n lead_sil python=3.10 -y
 conda activate lead_sil
 # torch 用 NVIDIA aarch64 / JetPack 版本（不要用 pip 的 cu128 轮子）
+# 注意：Orin 仓库的 pyproject.toml 已由 sync 脚本去掉 carla/open3d/pyqt5
+# （它们没有 aarch64 wheel，且 Orin 的 agent 节点运行时用不到）。
 pip install -e .
 ```
 
@@ -131,7 +133,7 @@ python sil/orin/agent_node.py --checkpoint /path/to/checkpoint
 
 - 收到 `lead/session` → 用 `map_name / gnss_uses_transverse_mercator / global_plan_gps / lat_ref / lon_ref / camera_indices` 初始化 `TransfuserCore`
   （这些正是本机替 Orin 补齐的"世界专有"信息）；
-- 收到 `lead/sensor_frame` → `core.step(sensors)`，把 `steer/throttle/brake`
+- 收到 `lead/sensor_frame` → `core.run_step(sensors)`，把 `steer/throttle/brake`
   经 `lead/control` 回给本机；
 - 周期性发 `lead/heartbeat`。
 
