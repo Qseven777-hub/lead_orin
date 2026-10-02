@@ -417,27 +417,66 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
-## 11. 一页速查
+## 11. 一页速查（我们这次实验的具体值）
+
+> 下面就是本次两台机的真实命令与路径，直接复制即可（换机器时替换成你的值）。
+
+**本次实验的环境（记牢）：**
+
+| 项          | 主机                                          | Orin                                                                                               |
+| ----------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| IP / 网口   | `192.168.110.51/24`（`enp129s0`）             | `192.168.110.50/24`                                                                                |
+| 用户 / 仓库 | `q` @ `~/gqzl/cvci_project/lead_v1`           | `tjuae` @ `/home/tjuae/GQZL/lead_orin`                                                             |
+| 计算环境    | conda `cvci_project`（py3.10）                | miniforge `gqzl-py310`（py3.10）                                                                   |
+| ROS 环境    | conda `ros_noetic`（RoboStack）               | 系统 py3.8 原生 Noetic                                                                             |
+| checkpoint  | `outputs/local_training_3cams_3000/posttrain` | `/home/tjuae/GQZL/model_quantization/model_pth/local_training_3cams_3000/posttrain`                |
+| engine      | —（在 Orin 用）                               | `/home/tjuae/GQZL/model_quantization/outputs/orin_quantization/planning/engines/model_fp16.engine` |
 
 ```bash
-# ===== 一次性 =====
-# 网络：主机 192.168.110.51/24，Orin 192.168.110.50/24，能互 ping
-# 版本：两端同一 commit
-# 数据：同一 checkpoint；Orin 有配对的 .engine
+# ===== 0) 网络（已配好可跳过）=====
+# 主机
+sudo nmcli con add type ethernet ifname enp129s0 con-name sil-wired \
+     ipv4.method manual ipv4.addresses 192.168.110.51/24 && sudo nmcli con up sil-wired
+# Orin
+sudo ip addr add 192.168.110.50/24 dev <orin网口> && sudo ip link set <orin网口> up
+# 互通
+ping -c2 192.168.110.50     # 主机
+ping -c2 192.168.110.51     # Orin
 
-# ===== Orin（先起）=====
-cd <lead_orin>
-export ROS_IP=192.168.110.50 ROS_MASTER_URI=http://192.168.110.50:11311
-export CHECKPOINT=<checkpoint>  LEAD_QUANTIZED_ENGINE=<model_fp16.engine>
-bash sil/orin/run_orin.sh          # 等 "waiting for host: lead/session"
+# ===== 1) 拉代码（两端同一 commit）=====
+# 主机
+cd ~/gqzl/cvci_project/lead_v1 && git pull --ff-only
+# Orin
+cd ~/GQZL/lead_orin && git pull --ff-only
 
-# ===== 主机（后起）=====
-cd <lead_v1>
-export ROS_IP=192.168.110.51 ROS_MASTER_URI=http://192.168.110.50:11311
-export CHECKPOINT=<同一 checkpoint>
-bash scripts/common/run_bench2drive_orin_v2.sh 0    # 单条；0-4 小批；不带参数=全量
+# ===== 2) Orin（先起；一条命令起 roscore+bridge+引擎服务+agent）=====
+cd ~/GQZL/lead_orin
+export ROS_IP=192.168.110.50
+export ROS_MASTER_URI=http://192.168.110.50:11311
+export CHECKPOINT=/home/tjuae/GQZL/model_quantization/model_pth/local_training_3cams_3000/posttrain
+export LEAD_QUANTIZED_ENGINE=/home/tjuae/GQZL/model_quantization/outputs/orin_quantization/planning/engines/model_fp16.engine
+bash sil/orin/run_orin.sh
+# 等 "waiting for host: lead/session"；之后终端会滚动显示每帧 control（按 route 分隔）
 
-# ===== 看结果 =====
-# Orin：  tail -f /tmp/sil_orin/agent.log     # 每帧 control seq=... infer_ms=...
-# 主机：  终端里的 [summary] ... status: Completed
+# ===== 3) 主机（后起；一条命令起 bridge+CARLA+leaderboard+remote agent）=====
+cd ~/gqzl/cvci_project/lead_v1
+export ROS_IP=192.168.110.51
+export ROS_MASTER_URI=http://192.168.110.50:11311
+export CHECKPOINT=outputs/local_training_3cams_3000/posttrain
+bash scripts/common/run_bench2drive_orin_v2.sh 0     # 单条；0-4 小批；不带参数=全量 220
+# 已算过的 route 默认跳过；要重算：SKIP_DONE=0 bash scripts/common/run_bench2drive_orin_v2.sh 0
+
+# ===== 4) 看结果 =====
+# Orin：终端滚动显示 control seq=... infer_ms=...；或
+#       ssh tjuae@192.168.110.50 'tail -f /tmp/sil_orin/agent.log'
+# 主机：终端里每条 [summary] index N id XXXX score .. status: Completed
+#       详细日志：outputs/watchdog_logs/bench2drive_per_route_v2/route_<id>_attempt_1.log
+
+# ===== 5) 收尾清理 =====
+# 主机（Ctrl+C 后若仍有残留）
+pkill -9 -f "[C]arlaUE4"; pkill -9 -f "[l]eaderboard_evaluator"; pkill -9 -f "[b]ridge_node.py"
+ss -ltn | grep -E '2000|8000|5560|5561' || echo clean
+# Orin（Ctrl+C 会触发 run_orin.sh 清理；必要时手动）
+pkill -9 -f "[e]ngine_service.py"; pkill -9 -f "[a]gent_node.py"; pkill -9 -f "[b]ridge_node.py"
+pkill -9 -f "[r]osmaster"; pkill -9 -f "[r]oscore"; pkill -9 -f "[r]osout"
 ```
