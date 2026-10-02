@@ -4,7 +4,13 @@ Orin 是"车上的计算单元"：接收主机（CARLA）转发的 session/senso
 `TransfuserCore` + FP16 TensorRT 引擎，把 `steer/throttle/brake` 回给主机。
 
 本目录是 **Orin 专属**，同步脚本保留；共享代码（`src/lead/**`、`sil/ros_bridge/**`、
-`sil/tools/**`、`docs/**`、`pyproject.toml`…）一律不改，改了会被主仓库覆盖。
+`sil/tools/**`、`pyproject.toml`…）一律不改，改了会被主仓库覆盖。
+
+## 相关文档
+
+- 部署与复现（从白板机）：[`../../README.md`](../../README.md)
+- Orin 环境与版本锁定清单：[`../../针对orin的环境配置.md`](../../针对orin的环境配置.md)
+- 主机 / 总说明：[`../../ROS软件在环.md`](../../ROS软件在环.md)、[`../../ROS软件在环复现.md`](../../ROS软件在环复现.md)
 
 ## 本机约束（为什么需要这一层）
 
@@ -29,43 +35,54 @@ Orin 是"车上的计算单元"：接收主机（CARLA）转发的 session/senso
 
 ## 前置（一次性）
 
-```bash
-# 1. 系统 py3.8 的 bridge/stub 依赖（免 sudo，用户级安装）
-/usr/bin/python3 -m pip install --user "pyzmq==26.4.0" "msgpack==1.1.1"
+依赖清单在本仓库根目录（本机 aarch64 已验证）：
 
-# 2. py3.10 计算环境（复用 miniforge 的 gqzl-py310）
-source /home/tjuae/miniforge3/etc/profile.d/conda.sh && conda activate gqzl-py310
-python -m pip install filterpy==1.4.5 pyzmq==27.2
-python -m pip install "lightning==2.6.1" --no-deps
-cd <lead_orin> && python -m pip install -e . --no-deps
+```bash
+# 1. 系统 py3.8 的 bridge/引擎依赖（免 sudo，用户级安装）
+/usr/bin/python3 -m pip install --user -r requirements-orin-system.txt   # pyzmq==26.4.0 msgpack==1.1.1
+
+# 2. py3.10 计算环境（miniforge gqzl-py310）
+cd <lead_orin>
+source ~/miniforge3/etc/profile.d/conda.sh && conda activate gqzl-py310
+pip install -r requirements-orin.txt     # torch(CPU)/onnx/py123d/...
+pip install -e . --no-deps
 ```
+
+完整从白板机配置见仓库根 [`README.md`](../../README.md)。
 
 ## 运行
 
 ```bash
-export CHECKPOINT=<checkpoint 目录>          # config.yaml + 恰好一个 model*.pth
+export CHECKPOINT=<checkpoint 目录>           # config.yaml + 恰好一个 model*.pth
 export LEAD_QUANTIZED_ENGINE=<model_fp16.engine>
-export ROS_IP=<Orin 的有线网卡 IP>            # 跨机测试必填；单机可用 127.0.0.1
+export ROS_IP=<Orin 的有线网卡 IP>             # 跨机测试必填；单机可用 127.0.0.1
+export ROS_MASTER_URI=http://<Orin IP>:11311   # 默认 127.0.0.1 即可（roscore 在本机起）
 bash sil/orin/run_orin.sh
 ```
+
+起好后这个终端会：
+
+- 打印 self-check：`engine service: READY` / `agent: listening` / `waiting for host: lead/session`；
+- **每帧**滚动显示 `control seq=… step=… steer=… throttle=… brake=… infer_ms=…`，
+  并按 route（session）用分隔条隔开；设 `SIL_LOG_EVERY_FRAME=0` 则只打首帧。
+
+`run_orin.sh` 默认 `LEAD_CONFIG=policy.target=orin_engine_policy:OrinEngineTransfuser`（即走引擎服务）。
+每收到新的一次 `session_id` 才重建 core（同一条 route 的重发不会重置状态）。
 
 日志在 `/tmp/sil_orin/`（`agent.log`、`engine.log`、`bridge.log`、`roscore.log`）。
 
 可选环境变量：`SIL_ENGINE_ENDPOINT`（默认 `tcp://127.0.0.1:5562`）、
 `CONDA_ENV`（默认 `gqzl-py310`）、`LEAD_DEVICE`（默认 `cpu`）、
-`SKIP_ROS=1`（roscore/bridge 由别处管理）。
+`SKIP_ROS=1`（roscore/bridge 由别处管理）、`SIL_LOG_EVERY_FRAME=0`（只打首帧）。
 
 ## 单独调试
 
 ```bash
 # 只起引擎服务
 LEAD_QUANTIZED_ENGINE=<...>.engine /usr/bin/python3 sil/orin/engine_service.py
-
-# 传输链路自检（stub，不需要 engine）
-bash sil/orin/loopback_orin.sh
 ```
 
-## 明天实测 checklist（主机 <-> Orin）
+## 联调 checklist（主机 <-> Orin）
 
 ### 0. 前置一致性
 
@@ -93,7 +110,7 @@ bash sil/orin/loopback_orin.sh
 
 - [ ] `source <ROS>/setup.bash`，`ROS_MASTER_URI=http://<Orin IP>:11311 ROS_IP=<主机 IP>`。
 - [ ] 起主机 bridge（`sil/ros_bridge/bridge_node.py`）。
-- [ ] 起 CARLA + leaderboard，用 remote agent 入口（`scripts/common/run_bench2drive_remote_v2.sh`）。
+- [ ] 起 CARLA + leaderboard，用 remote agent 入口（`scripts/common/run_bench2drive_orin_v2.sh`）。
 
 ### 4. 联调验证点（按顺序看日志）
 

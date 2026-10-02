@@ -30,7 +30,7 @@
 | 路径 | 说明 |
 | --- | --- |
 | `src/lead/` | lead 包（Orin 节点及其依赖；由主仓库同步，勿改） |
-| `sil/orin/**` | **Orin 专属**：`agent_node.py`、`engine_service.py`、`engine_codec.py`、`orin_policy_runner.py`、`orin_engine_policy.py`、`run_orin.sh`、`loopback_orin.sh` |
+| `sil/orin/**` | **Orin 专属**：`agent_node.py`、`engine_service.py`、`engine_codec.py`、`orin_policy_runner.py`、`orin_engine_policy.py`、`run_orin.sh` |
 | `sil/ros_bridge/`、`sil/tools/` | 共享（由主仓库同步） |
 | `requirements-orin.txt` | `gqzl-py310`（py3.10）的完整依赖清单（本机实测，见 §3.3） |
 | `requirements-orin-system.txt` | 系统 py3.8 的依赖（bridge / 引擎服务） |
