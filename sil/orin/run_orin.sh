@@ -112,22 +112,20 @@ echo "[orin] agent:          listening (policy target: $POLICY_TARGET)"
 echo "[orin] waiting for host: lead/session (ROS_IP=$ROS_IP)"
 echo "[orin] ================================================"
 
-# Report the two host-driven milestones as they happen.
-(
-  seen_core=0; seen_ctrl=0
-  while kill -0 "$AGENT_PID" 2>/dev/null; do
-    if [ "$seen_core" = 0 ] && grep -q "core ready" "$LOG_DIR/agent.log" 2>/dev/null; then
-      echo "[orin] + session received: $(grep -a 'core ready' "$LOG_DIR/agent.log" | tail -1 | sed 's/.*\[INFO\] //')"
-      seen_core=1
-    fi
-    if [ "$seen_ctrl" = 0 ] && grep -q "control seq=" "$LOG_DIR/agent.log" 2>/dev/null; then
-      echo "[orin] + first control:   $(grep -a 'control seq=' "$LOG_DIR/agent.log" | tail -1 | sed 's/.*\[INFO\] //')"
-      seen_ctrl=1
-    fi
-    sleep 1
-  done
-) &
-WATCH_PID=$!
-
+# Stream the agent's per-frame controls to this terminal, grouped by session so
+# each route is visually separated. Ctrl+C stops the whole stack.
 echo "[orin] running. logs: $LOG_DIR (agent.log, engine.log, bridge.log, roscore.log)"
-wait "$AGENT_PID"
+echo "[orin] streaming controls below (one block per route; Ctrl+C to stop)."
+while kill -0 "$AGENT_PID" 2>/dev/null; do
+  if ! IFS= read -r -t 1 line; then
+    continue
+  fi
+  case "$line" in
+    *"core ready"*)
+      printf '\n──────── session %s ────────\n' "${line##*] }"
+      ;;
+    *"control seq="*)
+      printf '  %s\n' "${line##*] }"
+      ;;
+  esac
+done < <(tail -n 0 -F "$LOG_DIR/agent.log" 2>/dev/null)
