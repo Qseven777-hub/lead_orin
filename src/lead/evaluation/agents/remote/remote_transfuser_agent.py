@@ -212,6 +212,14 @@ class RemoteTransfuserAgent(AbstractDrivingAgent):
                 raise RuntimeError(
                     "the Orin did not answer; aborting so the watchdog can restart",
                 )
+            # ROS topics are not latched, so the once-per-route session can be
+            # published before the Orin's subscription is connected and lost.
+            # Re-send it on a timeout so a later step can still succeed.
+            if self._session is not None:
+                self.transport.send(
+                    contract.TOPIC_SESSION,
+                    codec.encode(self._session),
+                )
             return carla.VehicleControl(steer=0.0, throttle=0.0, brake=1.0)
 
         self._consecutive_timeouts = 0

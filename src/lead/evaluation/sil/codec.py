@@ -7,8 +7,10 @@ msgpack with a small ndarray extension, which keeps the multi-megabyte sensor
 frames compact and is identical on both Python 3.10 processes.
 
 Only the types the contract uses are supported: ``None``, ``bool``, ``int``,
-``float``, ``str``, ``bytes``, ``list``/``tuple``, ``dict`` and numpy arrays
-(any dtype and shape). Anything else raises :class:`TypeError`.
+``float``, ``str``, ``bytes``, ``list``, ``tuple``, ``dict`` and numpy arrays
+(any dtype and shape). Tuples keep their type across the round trip, because
+the shared code type-checks some payloads as tuples. Anything else raises
+:class:`TypeError`.
 """
 
 from __future__ import annotations
@@ -21,6 +23,11 @@ import numpy.typing as npt
 
 # Marks a wire dict as an encoded ndarray, alongside its dtype, shape and bytes.
 _NDARRAY_MARKER = "__ndarray__"
+
+# Marks a wire dict as an encoded tuple. msgpack has no tuple type, and the
+# shared code type-checks some payloads (e.g. a lidar ``(frame, points)``) as
+# tuples, so the tag carries the tuple-ness across the round trip.
+_TUPLE_MARKER = "__tuple__"
 
 
 def _to_wire(value: typing.Any) -> typing.Any:
@@ -36,7 +43,9 @@ def _to_wire(value: typing.Any) -> typing.Any:
         return value.item()
     if isinstance(value, dict):
         return {key: _to_wire(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, tuple):
+        return {_TUPLE_MARKER: [_to_wire(item) for item in value]}
+    if isinstance(value, list):
         return [_to_wire(item) for item in value]
     if value is None or isinstance(value, (bool, int, float, str, bytes)):
         return value
@@ -50,6 +59,8 @@ def _from_wire(value: typing.Any) -> typing.Any:
             # frombuffer is read-only and shares the msgpack buffer; copy so the
             # caller can keep the array after the payload is released.
             return array.reshape(value["shape"]).copy()
+        if _TUPLE_MARKER in value:
+            return tuple(_from_wire(item) for item in value[_TUPLE_MARKER])
         return {key: _from_wire(item) for key, item in value.items()}
     if isinstance(value, list):
         return [_from_wire(item) for item in value]

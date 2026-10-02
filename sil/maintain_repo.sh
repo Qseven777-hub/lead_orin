@@ -68,7 +68,11 @@ commit_and_push "$MSG"
 if [ "$ROLE" = "host" ]; then
   ORIN_REPO="${ORIN_REPO:-$(cd .. && pwd)/lead_orin}"
   if [ -d "$ORIN_REPO/.git" ]; then
-    echo "[maintain] syncing Orin repo at $ORIN_REPO"
+    # Bring the staging clone up to date first: the Orin side commits its own
+    # sil/orin work, so a stale clone would make the sync push non-fast-forward.
+    echo "[maintain] updating Orin repo at $ORIN_REPO"
+    git -C "$ORIN_REPO" pull --ff-only
+    echo "[maintain] syncing shared code into the Orin repo"
     bash scripts/common/sync_orin_repo.sh "$ORIN_REPO"
     ( cd "$ORIN_REPO" && commit_and_push "sync: $MSG" )
   else
