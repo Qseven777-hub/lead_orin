@@ -23,32 +23,24 @@ import `carla` / `srunner` / `leaderboard`，因此本仓库**不含** `3rd_part
 | `src/lead/` | lead 包（Orin 节点及其依赖） |
 | `sil/` | `ros_bridge/bridge_node.py`、`orin/agent_node.py`、`tools/stub_orin_node.py`、自检脚本 |
 | `pyproject.toml` / `setup.py` | 安装依赖 |
-| `docs/orin_setup.md` | **Orin 侧搭建步骤（先读这个）** |
-| `docs/sil_ros.md` | 接口契约与设计 |
 | `ROS软件在环.md` | 整体说明 |
+| `ROS软件在环复现.md` | 0 基础复现手册（环境 / 网络 / 启动 / 排错） |
+| `sil/orin/README.md` | Orin 侧细节（引擎服务、启动脚本） |
 
 ## 快速开始
 
+一键启动 Orin 全套（`roscore + bridge + 引擎服务 + agent`）：
+
 ```bash
-# 1. ROS1 Noetic（bridge 用）
-sudo apt install -y ros-noetic-ros-base python3-zmq
-
-# 2. Python 3.10 lead 环境
-conda create -n lead_sil python=3.10 -y
-conda activate lead_sil
-pip install -e .          # torch 用 NVIDIA aarch64/JetPack 版本
-
-# 3. bridge + agent 节点
-source /opt/ros/noetic/setup.bash
-export ROS_MASTER_URI=http://127.0.0.1:11311 ROS_IP=<Orin IP>
-python3 sil/ros_bridge/bridge_node.py &
-
-export LEAD_QUANTIZED_ENGINE=/path/to/model_fp16.engine
-export LEAD_CONFIG="policy.target=lead.policy.transfuser.quantized_policy:QuantizedTransfuser"
-python sil/orin/agent_node.py --checkpoint /path/to/checkpoint
+cd <lead_orin>
+export ROS_IP=<Orin IP> ROS_MASTER_URI=http://<Orin IP>:11311
+export CHECKPOINT=<checkpoint 目录>
+export LEAD_QUANTIZED_ENGINE=<model_fp16.engine>
+bash sil/orin/run_orin.sh
+# 出现 "waiting for host: lead/session" 即就绪；终端会滚动显示每帧 control
 ```
 
-详细步骤、自检清单与排错见 [`docs/orin_setup.md`](docs/orin_setup.md)。
+主机侧、详细步骤与排错见 [`ROS软件在环复现.md`](ROS软件在环复现.md)。
 
 ## 与主仓库的关系
 
