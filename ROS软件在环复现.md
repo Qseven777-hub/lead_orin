@@ -148,6 +148,8 @@ conda create -n ros_noetic -c robostack-staging -c conda-forge \
 
 ### 4.2 Orin（Ubuntu 20.04 / JetPack）
 
+> **从白板机完整配置 Orin 环境（含版本锁定清单）见 [`针对orin的环境配置.md`](%E9%92%88%E5%AF%B9orin%E7%9A%84%E7%8E%AF%E5%A2%83%E9%85%8D%E7%BD%AE.md)。** 下面是速览。
+
 Orin 上要**两套 Python**，这是本项目一个关键设计：
 
 | 用途                                 | Python                                    | 说明                                            |
