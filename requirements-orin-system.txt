@@ -1,0 +1,5 @@
+# 系统 Python 3.8 的依赖（ROS bridge + TensorRT 引擎服务用）
+# 安装：
+#   /usr/bin/python3 -m pip install --user -r requirements-orin-system.txt
+pyzmq==26.4.0
+msgpack==1.1.1
