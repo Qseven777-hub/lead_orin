@@ -187,20 +187,53 @@ ______________________________________________________________________
 | 主机 | `enp129s0`（换成你的口）            | `192.168.110.51/24` |
 | Orin | `eth0`/`enP8p1s0`（换成 Orin 的口） | `192.168.110.50/24` |
 
-**主机**（用 NetworkManager）：
+两种做法：**持久（推荐，重启后自动生效）** 和 **临时（重启即失效，用于快速验证）**。
+两种都保留，按需选。
+
+### 5.1 持久（NetworkManager，重启后自动生效）
+
+**主机：**
 
 ```bash
 sudo nmcli con add type ethernet ifname enp129s0 con-name sil-wired \
-     ipv4.method manual ipv4.addresses 192.168.110.51/24
+     ipv4.method manual ipv4.addresses 192.168.110.51/24 ipv6.method ignore
+sudo nmcli con mod sil-wired connection.autoconnect yes
 sudo nmcli con up sil-wired
 ip -4 addr show enp129s0        # 应看到 192.168.110.51/24
 ```
 
-**Orin**：
+**Orin：**
 
 ```bash
-sudo ip addr add 192.168.110.50/24 dev <orin网口>
-sudo ip link set <orin网口> up
+sudo nmcli con add type ethernet ifname eth0 con-name sil-wired \
+     ipv4.method manual ipv4.addresses 192.168.110.50/24 ipv6.method ignore
+sudo nmcli con mod sil-wired connection.autoconnect yes
+sudo nmcli con up sil-wired
+ip -4 addr show eth0            # 应看到 192.168.110.50/24
+```
+
+> 若该网口已经有 NetworkManager 连接（例如 Orin 上是「有线连接 1」），可直接改成静态：
+>
+> ```bash
+> sudo nmcli con mod "有线连接 1" ipv4.method manual \
+>      ipv4.addresses 192.168.110.50/24 connection.autoconnect yes
+> sudo nmcli con up "有线连接 1"
+> ```
+
+### 5.2 临时（重启即失效，快速验证用）
+
+**主机：**
+
+```bash
+sudo ip addr add 192.168.110.51/24 dev enp129s0
+sudo ip link set enp129s0 up
+```
+
+**Orin：**
+
+```bash
+sudo ip addr add 192.168.110.50/24 dev eth0
+sudo ip link set eth0 up
 ```
 
 **互通检查**（两台都敲，能 ping 通即可）：
@@ -435,12 +468,19 @@ ______________________________________________________________________
 | engine      | —（在 Orin 用）                               | `/home/tjuae/GQZL/model_quantization/outputs/orin_quantization/planning/engines/model_fp16.engine` |
 
 ```bash
-# ===== 0) 网络（已配好可跳过）=====
+# ===== 0) 网络（已配好可跳过；持久与临时二选一）=====
+# 持久（推荐，重启后自动）
 # 主机
 sudo nmcli con add type ethernet ifname enp129s0 con-name sil-wired \
-     ipv4.method manual ipv4.addresses 192.168.110.51/24 && sudo nmcli con up sil-wired
+     ipv4.method manual ipv4.addresses 192.168.110.51/24 ipv6.method ignore
+sudo nmcli con mod sil-wired connection.autoconnect yes && sudo nmcli con up sil-wired
 # Orin
-sudo ip addr add 192.168.110.50/24 dev <orin网口> && sudo ip link set <orin网口> up
+sudo nmcli con add type ethernet ifname eth0 con-name sil-wired \
+     ipv4.method manual ipv4.addresses 192.168.110.50/24 ipv6.method ignore
+sudo nmcli con mod sil-wired connection.autoconnect yes && sudo nmcli con up sil-wired
+# 临时（重启即失效）
+# 主机: sudo ip addr add 192.168.110.51/24 dev enp129s0 && sudo ip link set enp129s0 up
+# Orin: sudo ip addr add 192.168.110.50/24 dev eth0   && sudo ip link set eth0 up
 # 互通
 ping -c2 192.168.110.50     # 主机
 ping -c2 192.168.110.51     # Orin

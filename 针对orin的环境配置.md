@@ -144,6 +144,15 @@ ______________________________________________________________________
 ## 5. 迁移到另一台 Orin（复现步骤）
 
 1. 刷**同档 JetPack（5.x / L4T R35.1）**，确认 CUDA 11.4 / TensorRT 8.4.1。
+1. **配网络**（与主机同网段；Orin 侧，持久与临时二选一）：
+   - 持久（NetworkManager，重启后自动）：
+     ```bash
+     sudo nmcli con add type ethernet ifname eth0 con-name sil-wired \
+          ipv4.method manual ipv4.addresses 192.168.110.50/24 ipv6.method ignore
+     sudo nmcli con mod sil-wired connection.autoconnect yes && sudo nmcli con up sil-wired
+     ```
+   - 临时（重启即失效）：`sudo ip addr add 192.168.110.50/24 dev eth0 && sudo ip link set eth0 up`
+   - 主机侧与互通检查见 [`ROS软件在环复现.md`](ROS%E8%BD%AF%E4%BB%B6%E5%9C%A8%E7%8E%AF%E5%A4%8D%E7%8E%B0.md) §5。
 1. 执行 **§2**（ROS Noetic + 系统 py3.8 依赖）。
 1. 执行 **§3**（miniforge + `gqzl-py310` + 冻结清单 + editable 装 `lead_orin`）。
 1. 拉代码（与主机**同一 commit**）：`git clone <lead_orin> && cd lead_orin && git checkout <commit>`。
