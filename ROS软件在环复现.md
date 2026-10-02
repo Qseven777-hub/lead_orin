@@ -157,24 +157,55 @@ Orin 上要**两套 Python**，这是本项目一个关键设计：
 | ROS + bridge + **TensorRT 引擎服务** | **系统 Python 3.8**                       | JetPack 的 TensorRT 8.4 只有 3.8 的 Python 绑定 |
 | 驾驶模型的特征/控制逻辑（`lead`）    | **miniforge `gqzl-py310`（Python 3.10）** | `lead` 要求 ≥3.10                               |
 
-准备（一次性）：
+基线（本机实测）：JetPack 5.0.2 / L4T R35.1、CUDA 11.4、TensorRT 8.4.1、系统 Python 3.8.10。
+
+下面是**从 0 到装好**的完整这条线（清单文件就在 `lead_orin` 仓库里）。
+
+**1) 先拉代码**（与主机同一 commit）：
 
 ```bash
-# 1) ROS1 Noetic（原生 apt）——给 bridge 用
-sudo apt install -y ros-noetic-ros-base python3-zmq python3-msgpack
-
-# 2) 系统 Python 3.8 的引擎服务依赖
-/usr/bin/python3 -m pip install --user "pyzmq==26.4.0" "msgpack==1.1.1"
-
-# 3) Python 3.10 计算环境（复用 miniforge 的 gqzl-py310）
-source ~/miniforge3/etc/profile.d/conda.sh && conda activate gqzl-py310
-python -m pip install filterpy==1.4.5 pyzmq==27.2
-python -m pip install "lightning==2.6.1" --no-deps
-cd <lead_orin 仓库目录> && python -m pip install -e . --no-deps
+git clone <lead_orin 仓库> && cd lead_orin
 ```
 
-> 为什么 Orin 上的 `lead_orin` 的 `pyproject.toml` 看起来少了依赖？因为它被同步脚本改过：
-> **去掉了 `carla/open3d/pyqt5`**（这三个没有 aarch64 轮子，Orin 也用不到）。
+**2) 系统层**（ROS Noetic + 系统 py3.8 桥接/引擎依赖）：
+
+```bash
+sudo apt update
+sudo apt install -y ros-noetic-ros-base python3-zmq python3-msgpack
+sudo apt install -y git build-essential cmake pkg-config
+/usr/bin/python3 -m pip install --user -r requirements-orin-system.txt   # pyzmq==26.4.0 msgpack==1.1.1
+```
+
+**3) 安装 miniforge（aarch64）并建 py3.10 环境**：
+
+```bash
+wget https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-aarch64.sh
+bash Miniforge3-Linux-aarch64.sh -b -p ~/miniforge3
+source ~/miniforge3/etc/profile.d/conda.sh
+conda create -n gqzl-py310 python=3.10 -y
+conda activate gqzl-py310
+```
+
+**4) 装依赖（用仓库里的清单，本机 aarch64 已验证）**：
+
+```bash
+pip install -r requirements-orin.txt     # 91 项：torch(CPU)/onnx/py123d/...
+pip install -e . --no-deps               # 可编辑安装 lead
+```
+
+**5) 校验**：
+
+```bash
+python -c "import lead, py123d, numba, cv2, torch; print('py310 ok')"     # py3.10 计算环境
+/usr/bin/python3 -c "import zmq, msgpack; print('sys ok')"                # 系统 py3.8
+/usr/src/tensorrt/bin/trtexec --version | head -1                          # TensorRT v8401
+```
+
+> - torch 是 **CPU aarch64 版**；CUDA 只在 TensorRT 引擎里用，推理不需要 torch CUDA。
+> - `requirements-orin.txt` 已含**模型转换**依赖（onnx / onnxruntime / onnxconverter-common）。
+> - **不要**直接 `pip install py123d`：它会拖一批无 aarch64 轮子的依赖；按清单装。
+> - `lead_orin/pyproject.toml` 已被同步脚本去掉 `carla/open3d/pyqt5`（无 aarch64 轮子、Orin 也用不到），
+>   所以用 `--no-deps` 安装。
 
 ______________________________________________________________________
 
