@@ -7,10 +7,15 @@ the incoming socket carries ``[topic, payload]`` frames the bridge received.
 
 PUSH/PULL is used rather than PUB/SUB so a message queued before the bridge is
 connected is not dropped.
+
+ZeroMQ sockets are not thread-safe. A compute process can send from more than
+one thread (the Orin node sends controls from its main loop and heartbeats from
+a timer thread), so sends and receives are each serialized with a lock.
 """
 
 from __future__ import annotations
 
+import threading
 import time
 
 import zmq
@@ -45,6 +50,8 @@ class SilTransport:
         self._source = self._context.socket(zmq.PULL)
         self._source.setsockopt(zmq.LINGER, linger_ms)
         self._source.connect(in_endpoint)
+        self._send_lock = threading.Lock()
+        self._recv_lock = threading.Lock()
 
     def send(self, topic: str, payload: bytes) -> None:
         """Queue one message for the bridge to publish.
@@ -53,7 +60,8 @@ class SilTransport:
             topic: ROS topic name.
             payload: Encoded message bytes.
         """
-        self._sink.send_multipart([topic.encode("utf-8"), payload])
+        with self._send_lock:
+            self._sink.send_multipart([topic.encode("utf-8"), payload])
 
     def recv(self, timeout_ms: int) -> tuple[str, bytes] | None:
         """Receive one message with a timeout.
@@ -64,9 +72,10 @@ class SilTransport:
         Returns:
             The ``(topic, payload)`` pair, or ``None`` on timeout.
         """
-        if self._source.poll(timeout_ms) == 0:
-            return None
-        topic, payload = self._source.recv_multipart()
+        with self._recv_lock:
+            if self._source.poll(timeout_ms) == 0:
+                return None
+            topic, payload = self._source.recv_multipart()
         return topic.decode("utf-8"), payload
 
     def wait_for(self, topic: str, timeout_ms: int) -> bytes | None:
