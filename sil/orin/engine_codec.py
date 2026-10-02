@@ -36,7 +36,9 @@ def _to_wire(value: typing.Any) -> typing.Any:
         return [_to_wire(item) for item in value]
     if value is None or isinstance(value, (bool, int, float, str, bytes)):
         return value
-    raise TypeError("cannot encode %s for the engine wire format" % type(value).__name__)
+    raise TypeError(
+        f"cannot encode {type(value).__name__} for the engine wire format"
+    )
 
 
 def _from_wire(value: typing.Any) -> typing.Any:

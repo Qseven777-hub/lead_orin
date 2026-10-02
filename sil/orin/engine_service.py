@@ -84,7 +84,7 @@ class EngineService:
         runtime = trt.Runtime(trt.Logger(trt.Logger.ERROR))
         self.engine = runtime.deserialize_cuda_engine(Path(engine_path).read_bytes())
         if self.engine is None:
-            raise SystemExit("could not deserialise the engine at %s" % engine_path)
+            raise SystemExit(f"could not deserialise the engine at {engine_path}")
         self.context = self.engine.create_execution_context()
 
         self.buffers: dict[int, c_void_p] = {}
@@ -106,7 +106,7 @@ class EngineService:
             nbytes = int(np.prod(shape)) * np.dtype(dtype).itemsize
             pointer = c_void_p()
             if self.lib.cudaMalloc(ctypes.byref(pointer), nbytes) != 0:
-                raise SystemExit("cudaMalloc failed for %s" % name)
+                raise SystemExit(f"cudaMalloc failed for {name}")
             self.buffers[index] = pointer
             self.host[index] = np.zeros(shape, dtype=dtype)
             if self.engine.binding_is_input(index):
@@ -121,28 +121,34 @@ class EngineService:
         """Copy the feed in, execute, and copy the outputs back."""
         missing = [name for _, name in self.inputs if name not in feed]
         if missing:
-            raise KeyError("the engine expects inputs %s" % missing)
+            raise KeyError(f"the engine expects inputs {missing}")
         for index, name in self.inputs:
             host = self.host[index]
             source = np.ascontiguousarray(feed[name], dtype=host.dtype)
             if source.shape != host.shape:
                 raise ValueError(
-                    "input %s: expected %s, got %s" % (name, host.shape, source.shape)
+                    f"input {name}: expected {host.shape}, got {source.shape}"
                 )
             host[...] = source
-            if self.lib.cudaMemcpy(
-                self.buffers[index], host.ctypes.data, host.nbytes, 1
-            ) != 0:
-                raise RuntimeError("cudaMemcpy H2D failed for %s" % name)
+            if (
+                self.lib.cudaMemcpy(
+                    self.buffers[index], host.ctypes.data, host.nbytes, 1
+                )
+                != 0
+            ):
+                raise RuntimeError(f"cudaMemcpy H2D failed for {name}")
         if not self.context.execute_v2(self._bindings()):
             raise RuntimeError("execute_v2 failed")
         outputs = {}
         for index, name in self.outputs:
             host = self.host[index]
-            if self.lib.cudaMemcpy(
-                host.ctypes.data, self.buffers[index], host.nbytes, 2
-            ) != 0:
-                raise RuntimeError("cudaMemcpy D2H failed for %s" % name)
+            if (
+                self.lib.cudaMemcpy(
+                    host.ctypes.data, self.buffers[index], host.nbytes, 2
+                )
+                != 0
+            ):
+                raise RuntimeError(f"cudaMemcpy D2H failed for {name}")
             outputs[name] = host.copy()
         return outputs
 
@@ -152,7 +158,7 @@ class EngineService:
             self.infer(feed)
 
     def serve(self) -> None:
-        print("ENGINE_SERVICE_READY %s" % self.endpoint, flush=True)
+        print(f"ENGINE_SERVICE_READY {self.endpoint}", flush=True)
         while True:
             payload = self.socket.recv()
             started = time.perf_counter()
@@ -165,7 +171,7 @@ class EngineService:
                     "infer_ms": (time.perf_counter() - started) * 1000.0,
                 }
             except Exception as exc:  # keep serving after a bad frame
-                reply = {"v": 1, "error": "%s: %s" % (type(exc).__name__, exc)}
+                reply = {"v": 1, "error": f"{type(exc).__name__}: {exc}"}
             self.socket.send(engine_codec.encode(reply))
 
 
@@ -174,17 +180,17 @@ def main() -> int:
     parser.add_argument(
         "--engine",
         default=os.environ.get(ENGINE_PATH_ENV, ""),
-        help="Path to the .engine file (default: $%s)" % ENGINE_PATH_ENV,
+        help=f"Path to the .engine file (default: ${ENGINE_PATH_ENV})",
     )
     parser.add_argument(
         "--endpoint",
         default=os.environ.get(ENDPOINT_ENV, DEFAULT_ENDPOINT),
-        help="ZeroMQ REP endpoint to bind (default: %s)" % DEFAULT_ENDPOINT,
+        help=f"ZeroMQ REP endpoint to bind (default: {DEFAULT_ENDPOINT})",
     )
     parser.add_argument("--warmup", type=int, default=3)
     args = parser.parse_args()
     if not args.engine:
-        parser.error("no engine: pass --engine or set %s" % ENGINE_PATH_ENV)
+        parser.error(f"no engine: pass --engine or set {ENGINE_PATH_ENV}")
 
     service = EngineService(args.engine, args.endpoint)
     service.warmup(max(0, args.warmup))

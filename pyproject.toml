@@ -112,6 +112,8 @@ lint.per-file-ignores."**/__init__.py" = [ "F401" ]
 lint.per-file-ignores."*.ipynb" = [ "T201" ]
 # CLI tools and notebooks report to stdout by design.
 lint.per-file-ignores."scripts/**" = [ "T201" ]
+# The Orin engine service and its loopback helpers are CLI tools too.
+lint.per-file-ignores."sil/orin/**" = [ "T201" ]
 lint.per-file-ignores."sil/tools/**" = [ "T201" ]
 lint.isort.known-first-party = [ "lead" ]
 

@@ -75,6 +75,7 @@ class OrinAgentNode:
             device=device,
         )
         self.core: TransfuserCore | None = None
+        self._route_id: str | None = None
         self._stop = threading.Event()
         self._controls_sent = 0
 
@@ -106,6 +107,7 @@ class OrinAgentNode:
             lon_ref=float(session["lon_ref"]),
             camera_indices=tuple(session.get("camera_indices", ())),
         )
+        self._route_id = session.get("route_id")
         LOG.info(
             "core ready: route=%s map=%s",
             session.get("route_id"),
@@ -182,7 +184,17 @@ class OrinAgentNode:
                     continue
                 topic, payload = item
                 if topic == contract.TOPIC_SESSION:
-                    self._build_core(codec.decode(payload))
+                    session = codec.decode(payload)
+                    # The host re-sends the session on timeouts (ROS topics are
+                    # not latched); only rebuild when the route actually changes,
+                    # so a duplicate does not reset the core mid-route.
+                    if self.core is None or session.get("route_id") != self._route_id:
+                        self._build_core(session)
+                    else:
+                        LOG.debug(
+                            "ignoring duplicate session for route %s",
+                            self._route_id,
+                        )
                 elif topic == contract.TOPIC_SENSOR:
                     self._on_sensor_frame(codec.decode(payload))
                 else:

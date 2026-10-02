@@ -105,29 +105,40 @@ conda create -n ros_noetic -c robostack-staging -c conda-forge \
 bash sil/run_loopback.sh     # 期望输出：OK: control seq=... steer=... throttle=... brake=...
 ```
 
-### 6.2 跨机（Orin 当 ROS master）
+### 6.2 跨机（推荐：两端各一个启动脚本）
+
+前提：两台机有线同网段、能互 ping；用**同一 commit 的 `lead`** 和**同一份
+checkpoint/`config.yaml`**。Orin 当 ROS master。
+
+**Orin 侧**（一键起 `roscore + bridge + 引擎服务 + agent`）：
 
 ```bash
 # Orin
-source /opt/ros/noetic/setup.bash
-export ROS_MASTER_URI=http://127.0.0.1:11311 ROS_IP=<orin-ip>
-roscore -p 11311 &
-python3 sil/ros_bridge/bridge_node.py &
-
-# 本机
-export ROS_MASTER_URI=http://<orin-ip>:11311 ROS_IP=<本机有线IP>
-python sil/ros_bridge/bridge_node.py &
+export ROS_IP=192.168.110.50
+export ROS_MASTER_URI=http://192.168.110.50:11311
+export CHECKPOINT=/path/to/local_training_3cams_3000/posttrain
+export LEAD_QUANTIZED_ENGINE=/path/to/model_fp16.engine
+bash sil/orin/run_orin.sh
+# 出现 "waiting for host: lead/session" 即就绪；日志在 /tmp/sil_orin/
 ```
 
-Orin 上把 stub 换成真正的 agent 节点：
+**本机侧**（起主机 bridge + CARLA + leaderboard + remote agent）：
 
 ```bash
-LEAD_QUANTIZED_ENGINE=/path/to/model_fp16.engine \
-LEAD_CONFIG="policy.target=lead.policy.transfuser.quantized_policy:QuantizedTransfuser" \
-python sil/orin/agent_node.py --checkpoint /path/to/checkpoint
+# 本机
+export ROS_IP=192.168.110.51                 # 本机有线网卡 IP
+export ROS_MASTER_URI=http://192.168.110.50:11311
+export CHECKPOINT=outputs/local_training_3cams_3000/posttrain
+bash sil/run_host.sh 0                       # 单条 route；不带参数=全量 220
 ```
 
-（详细步骤见 [`docs/orin_setup.md`](docs/orin_setup.md)。）
+判定闭环成立：本机日志出现 control 回流，Orin 的 `/tmp/sil_orin/agent.log`
+出现 `core ready: route=... map=...` 与 `first control sent: ... infer_ms=...`。
+
+不用脚本时，等价的原始命令：Orin 起 `roscore + python3 sil/ros_bridge/bridge_node.py`，
+本机起 `python sil/ros_bridge/bridge_node.py` 后，用
+`LEAD_AGENT_MODULE=src/lead/evaluation/agents/remote/remote_transfuser_agent.py`
+跑评测脚本。详细步骤见 [`docs/orin_setup.md`](docs/orin_setup.md)。
 
 ## 7. 待办
 
