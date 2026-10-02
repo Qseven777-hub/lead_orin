@@ -8,10 +8,10 @@
 
 ## 1. 仓库划分（完全分开）
 
-| 仓库                         | 负责                  | 内容                                                                                           |
-| ---------------------------- | --------------------- | ---------------------------------------------------------------------------------------------- |
-| **`lead_v1`**（主仓库）      | **主机侧 + 共享代码** | `src/lead/**`、`sil/ros_bridge/**`、`sil/tools/**`、`sil/docker/**`、本文件、`docs/`、构建文件 |
-| **`lead_orin`**（Orin 仓库） | **Orin 侧**           | `sil/orin/**`（agent 节点、引擎服务、启动脚本）、它自己的 `README.md`                          |
+| 仓库                         | 负责                  | 内容                                                                          |
+| ---------------------------- | --------------------- | ----------------------------------------------------------------------------- |
+| **`lead_v1`**（主仓库）      | **主机侧 + 共享代码** | `src/lead/**`、`sil/ros_bridge/**`、`sil/tools/**`、本文件、`docs/`、构建文件 |
+| **`lead_orin`**（Orin 仓库） | **Orin 侧**           | `sil/orin/**`（agent 节点、引擎服务、启动脚本）、它自己的 `README.md`         |
 
 - 共享代码由 `lead_v1` 拥有，通过 `scripts/common/sync_orin_repo.sh` 同步进 `lead_orin`；
 - **`sil/orin/` 只存在于 `lead_orin`**（本仓库不再包含它），Orin 侧改动不回灌。
@@ -28,7 +28,6 @@
 | `tools/local_probe.py`                                         | py3.10                  | 发一帧并等待 control                                             |
 | `run_loopback.sh`                                              | —                       | 单机端到端自检（无需 CARLA/Orin）                                |
 | `maintain_repo.sh`                                             | —                       | 收工：检查 → 提交推送 `lead_v1` → 同步并推送 `lead_orin`         |
-| `docker/`                                                      | docker/podman           | 可选：把 bridge 容器化                                           |
 
 Orin 侧的组件（**在 `lead_orin`**）：`sil/orin/agent_node.py`（节点）、`engine_service.py`
 （系统 py3.8 的 TensorRT 引擎服务）、`engine_codec.py`、`orin_policy_runner.py`、
@@ -143,15 +142,14 @@ python -m pytest tests/unittests/evaluation/sil -q
 
 ### 7.4 ROS 桥、工具、运维
 
-| 新增文件                                             | 作用                                                            |
-| ---------------------------------------------------- | --------------------------------------------------------------- |
-| `sil/ros_bridge/bridge_node.py`                      | 唯一 `import rospy` 的代码：ROS `UInt8MultiArray` ↔ 本地 ZeroMQ |
-| `sil/tools/stub_orin_node.py`                        | 临时 Orin 替身（回固定 control），用于链路自检                  |
-| `sil/tools/local_probe.py`                           | 发一帧并等待 control                                            |
-| `sil/run_loopback.sh`                                | 单机端到端自检（无需 CARLA/Orin）                               |
-| `sil/docker/Dockerfile.bridge`、`docker-compose.yml` | 可选：容器化 bridge                                             |
-| `sil/maintain_repo.sh`                               | 收工：检查 → 提交推送 `lead_v1` → 同步并推送 `lead_orin`        |
-| `sil/README.md`                                      | 本文件                                                          |
+| 新增文件                        | 作用                                                            |
+| ------------------------------- | --------------------------------------------------------------- |
+| `sil/ros_bridge/bridge_node.py` | 唯一 `import rospy` 的代码：ROS `UInt8MultiArray` ↔ 本地 ZeroMQ |
+| `sil/tools/stub_orin_node.py`   | 临时 Orin 替身（回固定 control），用于链路自检                  |
+| `sil/tools/local_probe.py`      | 发一帧并等待 control                                            |
+| `sil/run_loopback.sh`           | 单机端到端自检（无需 CARLA/Orin）                               |
+| `sil/maintain_repo.sh`          | 收工：检查 → 提交推送 `lead_v1` → 同步并推送 `lead_orin`        |
+| `sil/README.md`                 | 本文件                                                          |
 
 ### 7.5 测试与文档
 

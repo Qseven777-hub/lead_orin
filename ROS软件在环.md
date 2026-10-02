@@ -82,7 +82,6 @@
 | `sil/tools/stub_orin_node.py`                                  | ROS1 Noetic             | 临时 Orin 替身（回固定 control）                                      |
 | `sil/tools/local_probe.py`                                     | py3.10                  | 发一帧、等 control                                                    |
 | `sil/run_loopback.sh`                                          | —                       | 本机端到端自检（无需 CARLA/Orin）                                     |
-| `sil/docker/`                                                  | docker                  | 可选：把 bridge 容器化                                                |
 
 ## 5. 本机评测功能保持不变
 
@@ -176,10 +175,10 @@ agent 节点）→ 起 `bridge_node.py` → 起 `agent_node.py`（`LEAD_QUANTIZE
 
 代码分两个仓库：
 
-| 仓库                     | 内容                                                                                                                     | 谁改       |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------ | ---------- |
-| `lead_v1`（主仓库）      | 共用代码：`src/lead/**`、`sil/ros_bridge/**`、`sil/tools/**`、`sil/docker/**`、`sil/maintain_repo.sh`、`docs/`、构建文件 | 在本机改   |
-| `lead_orin`（Orin 仓库） | Orin 专属：`sil/orin/**`（agent 节点）、它自己的 `README.md`                                                             | 在 Orin 改 |
+| 仓库                     | 内容                                                                                                    | 谁改       |
+| ------------------------ | ------------------------------------------------------------------------------------------------------- | ---------- |
+| `lead_v1`（主仓库）      | 共用代码：`src/lead/**`、`sil/ros_bridge/**`、`sil/tools/**`、`sil/maintain_repo.sh`、`docs/`、构建文件 | 在本机改   |
+| `lead_orin`（Orin 仓库） | Orin 专属：`sil/orin/**`（agent 节点）、它自己的 `README.md`                                            | 在 Orin 改 |
 
 ### 10.1 Orin 侧改动边界（能改 / 不能改）
 
@@ -195,12 +194,12 @@ agent 节点）→ 起 `bridge_node.py` → 起 `agent_node.py`（`LEAD_QUANTIZE
 
 **不能改（共享代码，改了下次同步会被覆盖甚至删除）：**
 
-| 路径                                                                                                                 | 同步行为                                      |
-| -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| `src/lead/**`                                                                                                        | 整棵覆盖（`src/lead/routes/` 除外，主机专属） |
-| `sil/ros_bridge/**`、`sil/tools/**`、`sil/docker/**`、`sil/maintain_repo.sh`、`sil/README.md`、`sil/run_loopback.sh` | `sil/` 覆盖，仅 `sil/orin/` 被保留            |
-| `docs/**`                                                                                                            | 整棵覆盖                                      |
-| `pyproject.toml`、`setup.py`、`.env.example`、`.gitignore`、`LICENSE`、`ROS软件在环.md`                              | 用主仓库版本覆盖                              |
+| 路径                                                                                                | 同步行为                                      |
+| --------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `src/lead/**`                                                                                       | 整棵覆盖（`src/lead/routes/` 除外，主机专属） |
+| `sil/ros_bridge/**`、`sil/tools/**`、`sil/maintain_repo.sh`、`sil/README.md`、`sil/run_loopback.sh` | `sil/` 覆盖，仅 `sil/orin/` 被保留            |
+| `docs/**`                                                                                           | 整棵覆盖                                      |
+| `pyproject.toml`、`setup.py`、`.env.example`、`.gitignore`、`LICENSE`、`ROS软件在环.md`             | 用主仓库版本覆盖                              |
 
 > 判断口诀：**除了 `sil/orin/` 和 `lead_orin/README.md`（以及你在根目录自建的东西），其余都不是 Orin 的。**
 > 要改共享行为（agent core、契约、bridge），去主仓库 `lead_v1` 改，再 `bash sil/maintain_repo.sh "msg"` 同步过来。
