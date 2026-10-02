@@ -6,8 +6,6 @@
 > 相关文件：
 >
 > - **0 基础复现手册（从装环境到跑通）：[`ROS软件在环复现.md`](ROS%E8%BD%AF%E4%BB%B6%E5%9C%A8%E7%8E%AF%E5%A4%8D%E7%8E%B0.md)**
-> - 接口契约与设计：[`docs/sil_ros.md`](docs/sil_ros.md)
-> - Orin 侧搭建步骤：[`docs/orin_setup.md`](docs/orin_setup.md)
 > - 传输层代码：[`sil/`](sil/)、[`src/lead/evaluation/sil/`](src/lead/evaluation/sil/)
 
 ## 1. 形态
@@ -139,7 +137,7 @@ bash scripts/common/run_bench2drive_orin_v2.sh 0   # 单条 route；不带参数
 不用脚本时，等价的原始命令：Orin 起 `roscore + python3 sil/ros_bridge/bridge_node.py`，
 本机起 `python sil/ros_bridge/bridge_node.py` 后，用
 `LEAD_AGENT_MODULE=src/lead/evaluation/agents/remote/remote_transfuser_agent.py`
-跑评测脚本。详细步骤见 [`docs/orin_setup.md`](docs/orin_setup.md)。
+跑评测脚本。完整步骤见 [`ROS软件在环复现.md`](ROS%E8%BD%AF%E4%BB%B6%E5%9C%A8%E7%8E%AF%E5%A4%8D%E7%8E%B0.md)。
 
 ## 7. 待办
 
@@ -172,7 +170,7 @@ bash scripts/common/run_bench2drive_orin_v2.sh 0   # 单条 route；不带参数
 
 **Orin 要做的事**：装 ROS1 Noetic（跑 bridge）+ Python 3.10 lead 环境（跑
 agent 节点）→ 起 `bridge_node.py` → 起 `agent_node.py`（`LEAD_QUANTIZED_ENGINE` +
-`LEAD_CONFIG` 选 QuantizedTransfuser）。详见 [`docs/orin_setup.md`](docs/orin_setup.md)。
+`LEAD_CONFIG` 选 QuantizedTransfuser）。详见 [`ROS软件在环复现.md`](ROS%E8%BD%AF%E4%BB%B6%E5%9C%A8%E7%8E%AF%E5%A4%8D%E7%8E%B0.md)。
 
 ## 10. 仓库维护
 

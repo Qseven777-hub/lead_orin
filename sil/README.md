@@ -2,8 +2,8 @@
 
 本机 CARLA 与 Orin 推理之间的软件在环（SIL）通信层。
 
-- 设计、接口契约：[`../docs/sil_ros.md`](../docs/sil_ros.md)
-- Orin 侧搭建说明：[`../docs/orin_setup.md`](../docs/orin_setup.md)
+- 设计与总说明：[`../ROS软件在环.md`](../ROS%E8%BD%AF%E4%BB%B6%E5%9C%A8%E7%8E%AF.md)
+- 0 基础复现手册：[`../ROS软件在环复现.md`](../ROS%E8%BD%AF%E4%BB%B6%E5%9C%A8%E7%8E%AF%E5%A4%8D%E7%8E%B0.md)
 
 ## 组件
 
