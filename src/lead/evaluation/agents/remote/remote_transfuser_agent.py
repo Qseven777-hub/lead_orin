@@ -77,6 +77,8 @@ class RemoteTransfuserAgent(AbstractDrivingAgent):
         self.meters_travelled = 0.0
         self._consecutive_timeouts = 0
         self._session: dict | None = None
+        # Identifies this route run; stable across session re-sends, new per run.
+        self._session_id = f"{os.getpid()}-{time.time_ns()}"
 
         self.transport = SilTransport(
             os.environ.get("SIL_COMPUTE_OUT", "tcp://127.0.0.1:5560"),
@@ -144,6 +146,7 @@ class RemoteTransfuserAgent(AbstractDrivingAgent):
         )
         return contract.session(
             route_id=os.environ.get("BENCHMARK_ROUTE_ID", ""),
+            session_id=self._session_id,
             scenario_type=os.environ.get("SCENARIO_TYPE", ""),
             map_name=getattr(self, "map_name", ""),
             gnss_uses_transverse_mercator=gnss_uses_transverse_mercator,

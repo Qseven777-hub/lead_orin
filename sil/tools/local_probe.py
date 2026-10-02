@@ -25,6 +25,7 @@ def main() -> int:
         codec.encode(
             contract.session(
                 route_id="1711",
+                session_id="probe",
                 scenario_type="ParkingCutIn",
                 map_name="Town12",
                 gnss_uses_transverse_mercator=False,

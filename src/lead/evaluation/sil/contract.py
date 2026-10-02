@@ -67,6 +67,7 @@ def _envelope(kind: str) -> dict[str, typing.Any]:
 def session(
     *,
     route_id: str,
+    session_id: str,
     scenario_type: str,
     map_name: str,
     gnss_uses_transverse_mercator: bool,
@@ -80,6 +81,9 @@ def session(
 
     Args:
         route_id: Leaderboard route id (``BENCHMARK_ROUTE_ID``).
+        session_id: Unique id of this route run. The host keeps it stable across
+            re-sends of the same session, and changes it for a new run of the
+            same route, so the Orin can tell a duplicate from a fresh start.
         scenario_type: Scenario type parsed from the routes XML.
         map_name: CARLA map name, replacing ``self._world.get_map().name``.
         gnss_uses_transverse_mercator: GNSS projection flag the agent otherwise
@@ -100,6 +104,7 @@ def session(
     message.update(
         {
             "route_id": route_id,
+            "session_id": session_id,
             "scenario_type": scenario_type,
             "map_name": map_name,
             "gnss_uses_transverse_mercator": gnss_uses_transverse_mercator,
