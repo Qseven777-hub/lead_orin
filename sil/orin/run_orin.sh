@@ -120,8 +120,8 @@ echo "[orin] ================================================"
       echo "[orin] + session received: $(grep -a 'core ready' "$LOG_DIR/agent.log" | tail -1 | sed 's/.*\[INFO\] //')"
       seen_core=1
     fi
-    if [ "$seen_ctrl" = 0 ] && grep -q "first control sent" "$LOG_DIR/agent.log" 2>/dev/null; then
-      echo "[orin] + first control:   $(grep -a 'first control sent' "$LOG_DIR/agent.log" | tail -1 | sed 's/.*\[INFO\] //')"
+    if [ "$seen_ctrl" = 0 ] && grep -q "control seq=" "$LOG_DIR/agent.log" 2>/dev/null; then
+      echo "[orin] + first control:   $(grep -a 'control seq=' "$LOG_DIR/agent.log" | tail -1 | sed 's/.*\[INFO\] //')"
       seen_ctrl=1
     fi
     sleep 1

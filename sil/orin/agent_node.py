@@ -42,6 +42,9 @@ LOG = logging.getLogger("lead_sil_orin")
 
 HEARTBEAT_PERIOD_S = 0.5
 RECV_TIMEOUT_MS = 1000
+# Log one line per control frame by default; SIL_LOG_EVERY_FRAME=0 logs only the
+# first (per-frame is verbose: up to ~20 lines/second).
+LOG_EVERY_FRAME = os.environ.get("SIL_LOG_EVERY_FRAME", "1") == "1"
 
 
 def load_checkpoint_config(checkpoint_dir: str):
@@ -147,10 +150,11 @@ class OrinAgentNode:
             ),
         )
         self._controls_sent += 1
-        if self._controls_sent == 1:
+        if LOG_EVERY_FRAME or self._controls_sent == 1:
             LOG.info(
-                "first control sent: seq=%s steer=%.3f throttle=%.3f brake=%.3f infer_ms=%.1f",
+                "control seq=%s step=%s steer=%.3f throttle=%.3f brake=%.3f infer_ms=%.1f",
                 int(frame["seq"]),
+                int(frame["step"]),
                 command.steer,
                 command.throttle,
                 command.brake,
