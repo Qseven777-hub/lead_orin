@@ -3,10 +3,10 @@
 这份文档假设你**完全没接触过 ROS、也没跑过这套代码**。跟着从头做一遍，就能在两台机器上
 把「CARLA 仿真 + 模型在 Orin 上推理」的闭环跑通。
 
-> 想先看设计原理，见 [`ROS软件在环.md`](ROS软件在环.md) 与 [`docs/sil_ros.md`](docs/sil_ros.md)。
+> 想先看设计原理，见 [`ROS软件在环.md`](ROS%E8%BD%AF%E4%BB%B6%E5%9C%A8%E7%8E%AF.md) 与 [`docs/sil_ros.md`](docs/sil_ros.md)。
 > 本文只讲**怎么从 0 配到跑通**，并解释我们加的东西。
 
----
+______________________________________________________________________
 
 ## 0. 三分钟速览
 
@@ -22,7 +22,7 @@
   - 主机：`bash scripts/common/run_bench2drive_orin_v2.sh 0-4`
 - 本文后面每一节，都对应你实际要敲的命令。
 
----
+______________________________________________________________________
 
 ## 1. 这套东西到底在干嘛（用大白话）
 
@@ -39,23 +39,23 @@
 **为什么要费这个劲？** 因为最终模型要跑在车规算力（Orin）上，而仿真在开发机（主机）上。
 SIL 就是「用仿真当世界、用真算力当大脑」的实车预演。
 
----
+______________________________________________________________________
 
 ## 2. 名词小词典（看一眼就行）
 
-| 名词 | 一句话解释 |
-|---|---|
-| **CARLA** | 开源的自动驾驶仿真器（那台「游戏机」） |
-| **leaderboard / Bench2Drive** | CARLA 官方的评测框架与数据集；Bench2Drive 有 220 条路线 |
-| **agent（智能体）** | 驾驶模型 + 把模型输出变成控制的逻辑；本项目的 agent 是 TransFuser |
-| **ROS** | 机器人通信中间件。`roscore` 是「电话总机」，各个程序通过**话题（topic）**收发消息 |
-| **topic（话题）** | 像微信群：谁发谁收按名字订阅。本项目话题都叫 `lead/xxx` |
-| **ZMQ / ZeroMQ** | 一个轻量通信库（本机进程间用的「管道」），不是 ROS |
-| **Orin** | NVIDIA Jetson AGX Orin，车规级算力板 |
-| **TensorRT** | NVIDIA 的推理加速引擎，把模型编译成 `.engine` 文件，跑得飞快 |
-| **checkpoint** | 训练好的模型权重目录（含 `config.yaml` 和 `model*.pth`） |
+| 名词                          | 一句话解释                                                                            |
+| ----------------------------- | ------------------------------------------------------------------------------------- |
+| **CARLA**                     | 开源的自动驾驶仿真器（那台「游戏机」）                                                |
+| **leaderboard / Bench2Drive** | CARLA 官方的评测框架与数据集；Bench2Drive 有 220 条路线                               |
+| **agent（智能体）**           | 驾驶模型 + 把模型输出变成控制的逻辑；本项目的 agent 是 TransFuser                     |
+| **ROS**                       | 机器人通信中间件。`roscore` 是「电话总机」，各个程序通过\*\*话题（topic）\*\*收发消息 |
+| **topic（话题）**             | 像微信群：谁发谁收按名字订阅。本项目话题都叫 `lead/xxx`                               |
+| **ZMQ / ZeroMQ**              | 一个轻量通信库（本机进程间用的「管道」），不是 ROS                                    |
+| **Orin**                      | NVIDIA Jetson AGX Orin，车规级算力板                                                  |
+| **TensorRT**                  | NVIDIA 的推理加速引擎，把模型编译成 `.engine` 文件，跑得飞快                          |
+| **checkpoint**                | 训练好的模型权重目录（含 `config.yaml` 和 `model*.pth`）                              |
 
----
+______________________________________________________________________
 
 ## 3. 两台机器的分工与数据流
 
@@ -71,14 +71,54 @@ SIL 就是「用仿真当世界、用真算力当大脑」的实车预演。
 一次循环（一个 tick，20Hz）的流程：
 
 1. 主机 CARLA 采到一帧传感器 → `remote agent` 打包 → 经 ROS 发到 Orin；
-2. Orin 的 `agent_node` 收到，跑模型（TensorRT 引擎）→ 得到 `steer/throttle/brake`；
-3. Orin 把控制经 ROS 发回主机；
-4. 主机把控制施加到车上，推进仿真，进入下一帧。
+1. Orin 的 `agent_node` 收到，跑模型（TensorRT 引擎）得到**规划**，再由跟踪器转成**控制**；
+1. Orin 把控制经 ROS 发回主机；
+1. 主机把控制施加到车上，推进仿真，进入下一帧。
 
-> 关键点：**控制是纯数值**（方向盘/油门/刹车三个数），主机再包成 CARLA 的控制。
+> 关键点：**过网的是控制**（方向盘/油门/刹车三个数），主机再包成 CARLA 的控制。
 > 所以 Orin 上**不需要 CARLA**。
 
----
+### 3.1 模型输出的是「规划」，为什么回传的是「控制」？
+
+TransFuser 网络真正的输出是**规划**，不是控制：
+
+| 网络输出                    | 含义                           |
+| --------------------------- | ------------------------------ |
+| `future_waypoints`          | 未来一段轨迹点（车打算怎么走） |
+| `target_speed`（标量/分布） | 目标速度                       |
+| `route`                     | 预测的路线 / 目标点            |
+
+**规划 ≠ 控制**。把「车打算怎么走 + 想跑多快」变成「方向盘打多少、油门/刹车踩多少」，
+是一层**控制跟踪器**（PID 类）做的事。这一层就在 Orin 上跑，而且**和本机跑同一份共享代码**：
+
+```
+sensor → tick → build_scene_data → 特征化 → 网络前向(TensorRT 引擎)
+                                                   │
+                     输出「规划」Prediction：       ▼
+                     future_waypoints / target_speed / route
+                                                   │
+                     TransfuserControlMixin（共享的「控制跟踪」层）
+                     ├─ WaypointTracker ：未来轨迹点 → steer（方向盘）
+                     └─ PathSpeedTracker：目标速度   → throttle / brake
+                                                   │
+                              ControlCommand(steer, throttle, brake)
+                                                   │
+                        经 ROS 的 lead/control 传回主机
+```
+
+对应代码：
+
+- `src/lead/evaluation/agents/transfuser/transfuser_control.py`：`compute_control` 把 `Prediction` 变成 `ControlCommand`；
+- `sil/orin/agent_node.py` 调 `core.run_step(...)`，而 `TransfuserCore = TransfuserControlMixin + PolicyAgentCore`。
+
+**为什么只回传控制、不回传规划？**
+
+1. 主机开车只需要 `steer/throttle/brake`；规划是中间量，主机用不上。
+1. 评测指标（压实线、超速等）看的是**车实际怎么开**，不需要规划。
+1. 本机跑时用的也是这同一套跟踪器，所以 SIL 只是把「网络前向 + 跟踪」整段搬到 Orin，保证两端一致（parity）。
+1. 若以后要在主机上看可视化，契约里预留了可选字段 `control.aux`，可把规划张量一起回传——目前未启用。
+
+______________________________________________________________________
 
 ## 4. 一次性环境准备
 
@@ -87,10 +127,10 @@ SIL 就是「用仿真当世界、用真算力当大脑」的实车预演。
 ### 4.1 主机（Ubuntu 22.04）
 
 1. 有 NVIDIA 显卡（跑 CARLA），装好驱动。
-2. 准备 conda 环境：
+1. 准备 conda 环境：
    - **`cvci_project`**：Python 3.10，装本项目（含 CARLA 的 Python 客户端、模型依赖）。
    - **`ros_noetic`**：RoboStack 的 ROS1 Noetic（Python 3.9），只给 bridge 用。
-3. 装项目与 ROS 环境：
+1. 装项目与 ROS 环境：
 
 ```bash
 # 项目环境（名字按你们的来；本项目用 cvci_project）
@@ -110,10 +150,10 @@ conda create -n ros_noetic -c robostack-staging -c conda-forge \
 
 Orin 上要**两套 Python**，这是本项目一个关键设计：
 
-| 用途 | Python | 说明 |
-|---|---|---|
-| ROS + bridge + **TensorRT 引擎服务** | **系统 Python 3.8** | JetPack 的 TensorRT 8.4 只有 3.8 的 Python 绑定 |
-| 驾驶模型的特征/控制逻辑（`lead`） | **miniforge `gqzl-py310`（Python 3.10）** | `lead` 要求 ≥3.10 |
+| 用途                                 | Python                                    | 说明                                            |
+| ------------------------------------ | ----------------------------------------- | ----------------------------------------------- |
+| ROS + bridge + **TensorRT 引擎服务** | **系统 Python 3.8**                       | JetPack 的 TensorRT 8.4 只有 3.8 的 Python 绑定 |
+| 驾驶模型的特征/控制逻辑（`lead`）    | **miniforge `gqzl-py310`（Python 3.10）** | `lead` 要求 ≥3.10                               |
 
 准备（一次性）：
 
@@ -134,15 +174,15 @@ cd <lead_orin 仓库目录> && python -m pip install -e . --no-deps
 > 为什么 Orin 上的 `lead_orin` 的 `pyproject.toml` 看起来少了依赖？因为它被同步脚本改过：
 > **去掉了 `carla/open3d/pyqt5`**（这三个没有 aarch64 轮子，Orin 也用不到）。
 
----
+______________________________________________________________________
 
 ## 5. 网络配置（网线直连，静态 IP）
 
 两台机用**一根网线直连**（或同一交换机），配成同一网段。示例：
 
-| 机器 | 有线网口 | IP |
-|---|---|---|
-| 主机 | `enp129s0`（换成你的口） | `192.168.110.51/24` |
+| 机器 | 有线网口                            | IP                  |
+| ---- | ----------------------------------- | ------------------- |
+| 主机 | `enp129s0`（换成你的口）            | `192.168.110.51/24` |
 | Orin | `eth0`/`enP8p1s0`（换成 Orin 的口） | `192.168.110.50/24` |
 
 **主机**（用 NetworkManager）：
@@ -172,16 +212,16 @@ ping -c3 192.168.110.51     # 在 Orin 敲
 > （主机 `192.168.110.51`，Orin `192.168.110.50`）。**不能填 `127.0.0.1`**，
 > 否则对方收不到你的消息（能列出话题但收不到数据，是经典坑）。
 
----
+______________________________________________________________________
 
 ## 6. 代码与数据准备
 
 ### 6.1 两个仓库
 
-| 仓库 | 内容 | 在哪改 |
-|---|---|---|
-| `lead_v1`（主仓库） | 共享代码：`src/lead/**`、`sil/ros_bridge`、`sil/tools`、`docs/`、构建文件 | 在主机改 |
-| `lead_orin`（Orin 仓库） | Orin 专属：`sil/orin/**`（agent 节点、引擎服务、启动脚本） | 在 Orin 改 |
+| 仓库                     | 内容                                                                      | 在哪改     |
+| ------------------------ | ------------------------------------------------------------------------- | ---------- |
+| `lead_v1`（主仓库）      | 共享代码：`src/lead/**`、`sil/ros_bridge`、`sil/tools`、`docs/`、构建文件 | 在主机改   |
+| `lead_orin`（Orin 仓库） | Orin 专属：`sil/orin/**`（agent 节点、引擎服务、启动脚本）                | 在 Orin 改 |
 
 **纪律**：Orin 上**只有 `sil/orin/**` 和它的 `README.md` 是你的**；其它（`src/lead`、bridge、契约、`pyproject.toml`）都由主仓库同步覆盖，别在 Orin 上改。
 
@@ -192,15 +232,15 @@ ping -c3 192.168.110.51     # 在 Orin 敲
 
 ### 6.2 数据（不是源码）
 
-| 东西 | 要求 |
-|---|---|
-| **checkpoint 目录** | 含 `config.yaml` 和**恰好一个** `model*.pth` |
-| **`.engine`** | 你在 Orin 上用 TensorRT 编译出的 FP16 引擎，与上面 checkpoint 配对 |
+| 东西                | 要求                                                               |
+| ------------------- | ------------------------------------------------------------------ |
+| **checkpoint 目录** | 含 `config.yaml` 和**恰好一个** `model*.pth`                       |
+| **`.engine`**       | 你在 Orin 上用 TensorRT 编译出的 FP16 引擎，与上面 checkpoint 配对 |
 
 > **parity（一致性）**：两端用**同一份 `config.yaml`**（同一 checkpoint 目录）和**同一个 `.engine`**，
 > 结果才可比。可用 `md5sum config.yaml` 在两端核对是否一致。
 
----
+______________________________________________________________________
 
 ## 7. 启动与验证（照抄即可）
 
@@ -263,7 +303,7 @@ bash scripts/common/run_bench2drive_orin_v2.sh          # 全量 220 条
 
 起步会有 **1–2 帧 `no control`**，那是 Orin 第一次建模型/引擎的预热，正常。
 
----
+______________________________________________________________________
 
 ## 8. 我们加的这些功能是什么（逐项解释）
 
@@ -273,13 +313,13 @@ bash scripts/common/run_bench2drive_orin_v2.sh          # 全量 220 条
 
 定义了两端交换的**消息格式**（就像约定信封里写什么）。核心是几个话题：
 
-| 话题 | 方向 | 频率 | 内容 |
-|---|---|---|---|
-| `lead/session` | 主机→Orin | 每条路线一次 | 路线元信息（地图名、GPS 计划、相机编号…）——Orin 没有世界，推不出来的东西 |
-| `lead/sensor_frame` | 主机→Orin | 每帧 | 原始传感器（图像、激光、雷达、GPS、IMU、速度） |
-| `lead/control` | Orin→主机 | 每帧 | `steer/throttle/brake`（纯数值） |
-| `lead/heartbeat` | Orin→主机 | 2Hz | 心跳（证明 Orin 活着） |
-| `lead/error` | 双向 | 事件 | 出错信息 |
+| 话题                | 方向      | 频率         | 内容                                                                     |
+| ------------------- | --------- | ------------ | ------------------------------------------------------------------------ |
+| `lead/session`      | 主机→Orin | 每条路线一次 | 路线元信息（地图名、GPS 计划、相机编号…）——Orin 没有世界，推不出来的东西 |
+| `lead/sensor_frame` | 主机→Orin | 每帧         | 原始传感器（图像、激光、雷达、GPS、IMU、速度）                           |
+| `lead/control`      | Orin→主机 | 每帧         | `steer/throttle/brake`（纯数值）                                         |
+| `lead/heartbeat`    | Orin→主机 | 2Hz          | 心跳（证明 Orin 活着）                                                   |
+| `lead/error`        | 双向      | 事件         | 出错信息                                                                 |
 
 ### 8.2 编解码：`src/lead/evaluation/sil/codec.py`
 
@@ -290,7 +330,7 @@ bash scripts/common/run_bench2drive_orin_v2.sh          # 全量 220 条
 
 ### 8.3 传输：`src/lead/evaluation/sil/transport.py`（ZeroMQ）
 
-计算进程和本机 bridge 之间用一个**轻量管道（ZeroMQ）**通信。
+计算进程和本机 bridge 之间用一个\*\*轻量管道（ZeroMQ）\*\*通信。
 我们做的关键修复：**给收发加锁**。因为 Orin 节点有两条线程（主循环发控制、心跳线程发心跳）
 共用同一个 socket，而 ZeroMQ socket 不是线程安全的，并发发送会把数据帧交错，导致 bridge 崩塌、
 整段超时。
@@ -305,6 +345,7 @@ bash scripts/common/run_bench2drive_orin_v2.sh          # 全量 220 条
 
 替换掉「本地跑模型」的 agent：它保留 CARLA 侧的一切（传感器、评测、录像），
 但**把每帧传感器发出去、把回来的控制施加到车上**。
+
 - 若某帧超时没等到控制，先回退安全控制（`brake=1`）；
 - **会重发 `session`**：ROS 话题不「latch」，第一次发的 session 若在链路接通前发出会丢，
   所以收到首个控制之前，超时就重发；
@@ -313,6 +354,7 @@ bash scripts/common/run_bench2drive_orin_v2.sh          # 全量 220 条
 ### 8.6 Orin 节点：`sil/orin/agent_node.py`
 
 接收 `session` 建模型、接收 `sensor_frame` 跑模型、回 `control`、发心跳。
+
 - 只有 **`session_id` 变了才重建 core**（避免同一条路线复跑时用上次的旧状态）；
 - **每帧打印** `control seq=... infer_ms=...`（可用 `SIL_LOG_EVERY_FRAME=0` 关掉只打首帧）。
 
@@ -324,35 +366,35 @@ bash scripts/common/run_bench2drive_orin_v2.sh          # 全量 220 条
 
 ### 8.8 两个启动脚本
 
-| 脚本 | 起什么 |
-|---|---|
-| `sil/orin/run_orin.sh` | Orin：`roscore + bridge + engine_service + agent_node` |
-| `scripts/common/run_bench2drive_orin_v2.sh` | 主机：`bridge + CARLA + leaderboard + remote agent` |
+| 脚本                                        | 起什么                                                 |
+| ------------------------------------------- | ------------------------------------------------------ |
+| `sil/orin/run_orin.sh`                      | Orin：`roscore + bridge + engine_service + agent_node` |
+| `scripts/common/run_bench2drive_orin_v2.sh` | 主机：`bridge + CARLA + leaderboard + remote agent`    |
 
 端口约定（排错时有用）：
 
-| 端口 | 用途 |
-|---|---|
-| `11311` | ROS master（总机） |
-| `5560 / 5561` | 计算进程 ↔ bridge 的 ZeroMQ |
-| `5562` | Orin：agent ↔ 引擎服务 |
-| `2000` | CARLA 服务 |
-| `8000` | CARLA Traffic Manager（车流） |
+| 端口          | 用途                          |
+| ------------- | ----------------------------- |
+| `11311`       | ROS master（总机）            |
+| `5560 / 5561` | 计算进程 ↔ bridge 的 ZeroMQ   |
+| `5562`        | Orin：agent ↔ 引擎服务        |
+| `2000`        | CARLA 服务                    |
+| `8000`        | CARLA Traffic Manager（车流） |
 
----
+______________________________________________________________________
 
 ## 9. 常见问题排查
 
-| 现象 | 原因 / 处理 |
-|---|---|
-| 起步一直 `no control`、Orin 无 `core ready` | 主机先起了；或 `ROS_MASTER_URI`/`ROS_IP` 填错（必须是对端可达的**本机有线 IP**，不能 127.0.0.1） |
-| 能列出话题但收不到数据 | 同上：`ROS_IP` 错 / 防火墙（`sudo ufw allow from <同网段>/24`） |
-| `Failed to connect to CARLA Traffic Manager` | 上一轮遗留的评测/CARLA 进程占着 **8000** 端口，杀掉后重跑 |
-| Orin 启动报 `Address already in use (tcp://127.0.0.1:5562)` | 上一轮的引擎服务没退干净；先清理（见下）再起 |
-| `sensor_frame arrived before session` | 主机没先发 session（remote agent 会重发，一般自愈；频繁出现检查版本是否一致） |
-| 同一路线复跑结果异常 | 历史 bug（已修）：确保两端 `git pull` 到最新（有 `session_id` 修复） |
-| 中途整段超时、bridge 日志有 `too many values` | 历史 bug（已修）：确保 `transport.py` 是最新（线程安全） |
-| `Expected exactly one 'model*.pth'` | checkpoint 目录里权重文件不是恰好一个 |
+| 现象                                                        | 原因 / 处理                                                                                      |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| 起步一直 `no control`、Orin 无 `core ready`                 | 主机先起了；或 `ROS_MASTER_URI`/`ROS_IP` 填错（必须是对端可达的**本机有线 IP**，不能 127.0.0.1） |
+| 能列出话题但收不到数据                                      | 同上：`ROS_IP` 错 / 防火墙（`sudo ufw allow from <同网段>/24`）                                  |
+| `Failed to connect to CARLA Traffic Manager`                | 上一轮遗留的评测/CARLA 进程占着 **8000** 端口，杀掉后重跑                                        |
+| Orin 启动报 `Address already in use (tcp://127.0.0.1:5562)` | 上一轮的引擎服务没退干净；先清理（见下）再起                                                     |
+| `sensor_frame arrived before session`                       | 主机没先发 session（remote agent 会重发，一般自愈；频繁出现检查版本是否一致）                    |
+| 同一路线复跑结果异常                                        | 历史 bug（已修）：确保两端 `git pull` 到最新（有 `session_id` 修复）                             |
+| 中途整段超时、bridge 日志有 `too many values`               | 历史 bug（已修）：确保 `transport.py` 是最新（线程安全）                                         |
+| `Expected exactly one 'model*.pth'`                         | checkpoint 目录里权重文件不是恰好一个                                                            |
 
 **启动前清理孤立进程**（防止端口占用）：
 
@@ -365,7 +407,7 @@ pkill -9 -f "[r]osmaster"; pkill -9 -f "[r]oscore"; pkill -9 -f "[r]osout"
 pkill -9 -f "[C]arlaUE4"; pkill -9 -f "[l]eaderboard_evaluator"; pkill -9 -f "[b]ridge_node.py"
 ```
 
----
+______________________________________________________________________
 
 ## 10. 收尾
 
@@ -373,7 +415,7 @@ pkill -9 -f "[C]arlaUE4"; pkill -9 -f "[l]eaderboard_evaluator"; pkill -9 -f "[b
 - **Orin**：按 `Ctrl+C`（`run_orin.sh` 会清掉它起的全部进程）。
 - 确认端口都释放：`ss -ltn | grep -E '2000|8000|5560|5561|5562|11311'` 应无输出。
 
----
+______________________________________________________________________
 
 ## 11. 一页速查
 
