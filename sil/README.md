@@ -107,3 +107,84 @@ bash sil/run_loopback.sh
 # 单元测试
 python -m pytest tests/unittests/evaluation/sil -q
 ```
+
+## 7. 相比初始版本新增了什么（及各自作用）
+
+“初始版本”指引入 SIL 之前的仓库状态。下面是把 agent 拆出 CARLA-free 共享层、并加上两机通信后，
+**新增与改动的全部代码**。
+
+### 7.1 共享计算核心（从 CARLA agent 剥离；主机与 Orin 共用）
+
+| 新增文件                                      | 作用                                                                                                |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `src/lead/common/driving_state.py`            | `DrivingStateBase`（定位/Kalman/路线/`tick`/历史位姿）+ `ControlCommand`                            |
+| `src/lead/api/agent_scene.py`                 | `ScenePipelineMixin`（`tick` 队列、`build_scene_data`、相机/雷达/激光处理）；读 `map_name` 而非世界 |
+| `src/lead/evaluation/inference/agent_core.py` | `PolicyAgentCore`：一步编排 `run_step`（tick→scene→features→forward→control）                       |
+| `.../agents/transfuser/transfuser_control.py` | `TransfuserControlMixin`：规划（prediction）→ `ControlCommand`                                      |
+| `.../agents/transfuser/transfuser_core.py`    | `TransfuserCore`：Orin 上跑的完整 core                                                              |
+
+### 7.2 SIL 传输层（py3.10）
+
+| 新增文件                               | 作用                                                                         |
+| -------------------------------------- | ---------------------------------------------------------------------------- |
+| `src/lead/evaluation/sil/contract.py`  | 话题名 + 消息 schema（session / sensor_frame / control / heartbeat / error） |
+| `src/lead/evaluation/sil/codec.py`     | msgpack 编解码；**保真 tuple**（`__tuple__` 标记）与 ndarray                 |
+| `src/lead/evaluation/sil/transport.py` | `SilTransport`：ZeroMQ PUSH/PULL；**收发加锁**（线程安全）                   |
+| `src/lead/evaluation/sil/__init__.py`  | 对外导出                                                                     |
+
+### 7.3 主机侧接入
+
+| 新增文件                                                       | 作用                                                                                                |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `src/lead/evaluation/agents/remote/remote_transfuser_agent.py` | 主机 adapter：转发传感器、施加远端控制、超时**重发 session**、`session_id`，保留 infraction/metrics |
+| `src/lead/evaluation/agents/remote/__init__.py`                | 包标记                                                                                              |
+| `scripts/common/run_bench2drive_orin_v2.sh`                    | 主机一键入口：起 bridge + CARLA + leaderboard + remote agent                                        |
+| `scripts/common/sync_orin_repo.sh`                             | 把共享代码同步进 `lead_orin`                                                                        |
+
+### 7.4 ROS 桥、工具、运维
+
+| 新增文件                                             | 作用                                                            |
+| ---------------------------------------------------- | --------------------------------------------------------------- |
+| `sil/ros_bridge/bridge_node.py`                      | 唯一 `import rospy` 的代码：ROS `UInt8MultiArray` ↔ 本地 ZeroMQ |
+| `sil/tools/stub_orin_node.py`                        | 临时 Orin 替身（回固定 control），用于链路自检                  |
+| `sil/tools/local_probe.py`                           | 发一帧并等待 control                                            |
+| `sil/run_loopback.sh`                                | 单机端到端自检（无需 CARLA/Orin）                               |
+| `sil/docker/Dockerfile.bridge`、`docker-compose.yml` | 可选：容器化 bridge                                             |
+| `sil/maintain_repo.sh`                               | 收工：检查 → 提交推送 `lead_v1` → 同步并推送 `lead_orin`        |
+| `sil/README.md`                                      | 本文件                                                          |
+
+### 7.5 测试与文档
+
+| 新增文件                                                          | 作用                               |
+| ----------------------------------------------------------------- | ---------------------------------- |
+| `tests/unittests/evaluation/sil/test_codec.py`                    | 编解码往返（含 tuple / ndarray）   |
+| `tests/unittests/evaluation/sil/test_loopback.py`                 | 传输回环                           |
+| `tests/unittests/evaluation/test_agent_core.py`                   | 主机 / Orin 共用同一实现（防漂移） |
+| `ROS软件在环.md` / `ROS软件在环复现.md` / `针对orin的环境配置.md` | 总说明 / 0 基础复现 / Orin 环境    |
+
+### 7.6 Orin 侧（在 `lead_orin` 仓库，不在本仓库）
+
+| 文件                                       | 作用                                             |
+| ------------------------------------------ | ------------------------------------------------ |
+| `sil/orin/agent_node.py`                   | 收 session/sensor_frame，跑 core，回 control     |
+| `sil/orin/engine_service.py`               | 系统 py3.8 的 TensorRT 引擎服务（ZeroMQ 5562）   |
+| `sil/orin/engine_codec.py`                 | 引擎链路的编解码                                 |
+| `sil/orin/orin_policy_runner.py`           | 只 `.to(device)` 的 `PolicyRunner` 变体          |
+| `sil/orin/orin_engine_policy.py`           | `OrinEngineTransfuser`：`forward` 转发到引擎服务 |
+| `sil/orin/run_orin.sh`、`loopback_orin.sh` | 一键启动 / 自检                                  |
+| `sil/orin/README.md`                       | Orin 侧说明                                      |
+
+### 7.7 修改的现有文件（以及原因）
+
+| 文件                                                      | 改动                                                                                          |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `src/lead/api/abstract_driving_agent.py`                  | 抽出 scene/tick 逻辑，改为继承共享模块；保留 leaderboard / 传感器 / infraction                |
+| `src/lead/common/base_agent.py`                           | 改为 `BaseAgent(DrivingStateBase)`，只留 CARLA 相关（GNSS 标志、`VehicleControl` 占位）       |
+| `src/lead/common/carla_to_123d.py`                        | `carla.Rotation` → `EulerRotation` 值对象；`import carla` 移入 `TYPE_CHECKING`                |
+| `src/lead/common/localization/gps.py`                     | 去 CARLA：GNSS 投影标志改为传参                                                               |
+| `src/lead/common/localization/kalman_filter.py`           | `control` 参数改用鸭子类型协议 `ControlLike`，兼容 `ControlCommand` 与 `carla.VehicleControl` |
+| `.../agents/transfuser/transfuser_agent.py`               | 改为继承 `TransfuserControlMixin`，只留 CARLA 侧可视化                                        |
+| `.../agents/ego_status/ego_status_agent.py`               | 返回 `ControlCommand`（CARLA-free）                                                           |
+| `src/lead/__main__.py`                                    | 支持 `LEAD_AGENT_MODULE` 选择 remote agent                                                    |
+| `pyproject.toml`                                          | 加 `msgpack` / `pyzmq`；basedpyright 加 remote 运行环境；ruff 纳入 `sil/**`                   |
+| `scripts/common/run_bench2drive_fast_v2.sh`、`.gitignore` | 小改（接入 remote / 忽略产物）                                                                |
