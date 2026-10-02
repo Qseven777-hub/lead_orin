@@ -76,7 +76,7 @@
 | -------------------------------------------------------------- | ----------------------- | --------------------------------------------------------------------- |
 | `src/lead/evaluation/sil/`                                     | py3.10                  | `contract` / `codec`(msgpack) / `transport`(ZeroMQ)                   |
 | `sil/ros_bridge/bridge_node.py`                                | ROS1 Noetic (py3.8/3.9) | ROS `UInt8MultiArray` ↔ 本地 ZeroMQ                                   |
-| `sil/orin/agent_node.py`                                       | py3.10                  | Orin 节点：`TransfuserCore` + `PolicyRunner` + `SilTransport`         |
+| `sil/orin/agent_node.py`（在 `lead_orin`）                     | py3.10                  | Orin 节点：`TransfuserCore` + `PolicyRunner` + `SilTransport`         |
 | `src/lead/evaluation/agents/remote/remote_transfuser_agent.py` | py3.10                  | 本机 adapter：转发传感器、施加远端控制，保留 infraction/video/metrics |
 | `scripts/common/run_bench2drive_orin_v2.sh`                    | —                       | 本机入口：起 bridge + remote agent + 跑 route（不带参数=全量 220）    |
 | `sil/tools/stub_orin_node.py`                                  | ROS1 Noetic             | 临时 Orin 替身（回固定 control）                                      |
