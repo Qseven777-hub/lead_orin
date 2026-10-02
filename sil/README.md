@@ -162,15 +162,15 @@ python -m pytest tests/unittests/evaluation/sil -q
 
 ### 7.6 Orin 侧（在 `lead_orin` 仓库，不在本仓库）
 
-| 文件                                       | 作用                                             |
-| ------------------------------------------ | ------------------------------------------------ |
-| `sil/orin/agent_node.py`                   | 收 session/sensor_frame，跑 core，回 control     |
-| `sil/orin/engine_service.py`               | 系统 py3.8 的 TensorRT 引擎服务（ZeroMQ 5562）   |
-| `sil/orin/engine_codec.py`                 | 引擎链路的编解码                                 |
-| `sil/orin/orin_policy_runner.py`           | 只 `.to(device)` 的 `PolicyRunner` 变体          |
-| `sil/orin/orin_engine_policy.py`           | `OrinEngineTransfuser`：`forward` 转发到引擎服务 |
-| `sil/orin/run_orin.sh`、`loopback_orin.sh` | 一键启动 / 自检                                  |
-| `sil/orin/README.md`                       | Orin 侧说明                                      |
+| 文件                             | 作用                                             |
+| -------------------------------- | ------------------------------------------------ |
+| `sil/orin/agent_node.py`         | 收 session/sensor_frame，跑 core，回 control     |
+| `sil/orin/engine_service.py`     | 系统 py3.8 的 TensorRT 引擎服务（ZeroMQ 5562）   |
+| `sil/orin/engine_codec.py`       | 引擎链路的编解码                                 |
+| `sil/orin/orin_policy_runner.py` | 只 `.to(device)` 的 `PolicyRunner` 变体          |
+| `sil/orin/orin_engine_policy.py` | `OrinEngineTransfuser`：`forward` 转发到引擎服务 |
+| `sil/orin/run_orin.sh`           | 一键启动（roscore + bridge + 引擎服务 + agent）  |
+| `sil/orin/README.md`             | Orin 侧说明                                      |
 
 ### 7.7 修改的现有文件（以及原因）
 
