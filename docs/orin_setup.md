@@ -91,7 +91,7 @@ roscore -p 11311
 ```
 
 本机侧设 `ROS_MASTER_URI=http://<Orin-IP>:11311 ROS_IP=<本机有线 IP>`（见
-`scripts/common/run_bench2drive_remote_v2.sh`）。
+`scripts/common/run_bench2drive_orin_v2.sh`）。
 
 > `ROS_IP` 必须是对端可访问的地址；填错会导致话题能列出但收不到消息。
 > 有防火墙时放行同网段（`sudo ufw allow from 192.168.110.0/24`）。
@@ -119,7 +119,7 @@ python3 -u sil/tools/stub_orin_node.py
 ```
 
 保持 `roscore`、`bridge`、`stub` 三个进程在跑，本机执行
-`scripts/common/run_bench2drive_remote_v2.sh`（或 `sil/run_loopback.sh`），
+`scripts/common/run_bench2drive_orin_v2.sh`（或 `sil/run_loopback.sh`），
 本机日志出现 `OK: control seq=...` 即链路打通。
 
 ## 6. 跑真正的 agent 节点

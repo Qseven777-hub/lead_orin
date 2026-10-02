@@ -116,4 +116,4 @@ bash sil/run_loopback.sh
 - [ ] 本机的 leaderboard adapter：发 `sensor_frame`、应用远端 `control`，保留
   infraction/video/metrics。
 - [ ] Orin 侧 agent 节点（复用同一 `AgentCore`，见 `orin_setup.md`）。
-- [ ] `run_bench2drive_remote_v2.sh` 与 watchdog 接入。
+- [ ] `run_bench2drive_orin_v2.sh` 与 watchdog 接入。

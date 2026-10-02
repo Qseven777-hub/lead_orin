@@ -79,7 +79,7 @@
 | `sil/ros_bridge/bridge_node.py`                                | ROS1 Noetic (py3.8/3.9) | ROS `UInt8MultiArray` ↔ 本地 ZeroMQ                                   |
 | `sil/orin/agent_node.py`                                       | py3.10                  | Orin 节点：`TransfuserCore` + `PolicyRunner` + `SilTransport`         |
 | `src/lead/evaluation/agents/remote/remote_transfuser_agent.py` | py3.10                  | 本机 adapter：转发传感器、施加远端控制，保留 infraction/video/metrics |
-| `scripts/common/run_bench2drive_remote_v2.sh`                  | —                       | 本机入口：起 bridge + 指定 remote agent + 复用 fast 脚本/watchdog     |
+| `scripts/common/run_bench2drive_orin_v2.sh`                    | —                       | 本机入口：起 bridge + remote agent + 跑 route（不带参数=全量 220）    |
 | `sil/tools/stub_orin_node.py`                                  | ROS1 Noetic             | 临时 Orin 替身（回固定 control）                                      |
 | `sil/tools/local_probe.py`                                     | py3.10                  | 发一帧、等 control                                                    |
 | `sil/run_loopback.sh`                                          | —                       | 本机端到端自检（无需 CARLA/Orin）                                     |
@@ -129,7 +129,7 @@ bash sil/orin/run_orin.sh
 export ROS_IP=192.168.110.51                 # 本机有线网卡 IP
 export ROS_MASTER_URI=http://192.168.110.50:11311
 export CHECKPOINT=outputs/local_training_3cams_3000/posttrain
-bash sil/run_host.sh 0                       # 单条 route；不带参数=全量 220
+bash scripts/common/run_bench2drive_orin_v2.sh 0   # 单条 route；不带参数=全量 220
 ```
 
 判定闭环成立：本机日志出现 control 回流，Orin 的 `/tmp/sil_orin/agent.log`
@@ -144,8 +144,7 @@ bash sil/run_host.sh 0                       # 单条 route；不带参数=全�
 
 - [x] **本机 adapter**：`remote_transfuser_agent.py`——收传感器 → 发 `sensor_frame`、
   收 `control` 施加到车，保留 infraction/video/metrics。
-- [x] `run_bench2drive_remote_v2.sh`：起 bridge + 指定 remote agent，接入现有
-  fast 脚本与 watchdog。
+- [x] `run_bench2drive_orin_v2.sh`：本机入口，起 bridge + remote agent 跑 route。
 - [ ] **parity 验证**：同一 engine，本机本地跑 vs 走 Orin 跑，比对控制/得分。
 - [ ] Orin 依赖落地（py123d/numba/cv2/torch aarch64）与 engine 加载。
 - [ ] 本机 adapter 的 video/可视化（需要把 Orin 的 features/prediction 回传或
