@@ -69,8 +69,10 @@ BASE_FRAME = "base_link"
 MAP_FRAME = "map"
 
 # Number of GNSS fixes averaged into the published ego pose. The raw fixes
-# jitter by about a metre, so a short window keeps the map view steady.
-POSE_WINDOW = 9
+# jitter by about a metre, so a long window is needed both to steady the
+# position and to recover the heading (this route averages well under 1 m/s,
+# so a short window is pure noise).
+POSE_WINDOW = 45
 
 # Constant from CARLA's GNSS simulation, used to invert its transverse
 # Mercator projection into map metres.
@@ -453,10 +455,14 @@ class SilViz:
         window = np.asarray(self._gnss)
         position = window.mean(axis=0)
         yaw = 0.0
-        if len(window) > 1:
-            deltas = window[-1] - window[0]
-            if float(np.hypot(*deltas)) > 1e-3:
-                yaw = math.atan2(float(deltas[1]), float(deltas[0]))
+        if len(window) >= 8:
+            # Least-squares heading over the window: far steadier than one
+            # frame delta when the fixes jitter by about a metre.
+            steps = np.arange(len(window), dtype=np.float64)
+            slope_x = float(np.polyfit(steps, window[:, 0], 1)[0])
+            slope_y = float(np.polyfit(steps, window[:, 1], 1)[0])
+            if float(np.hypot(slope_x, slope_y)) > 1e-6:
+                yaw = math.atan2(slope_y, slope_x)
         self._broadcast_pose(position, yaw, stamp)
         self.pub_odom.publish(self._odometry(position, yaw, stamp))
 

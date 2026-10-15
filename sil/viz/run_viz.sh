@@ -10,7 +10,8 @@
 # and route Paths, target/ego/control markers, the camera image, the control
 # vector (rqt_plot) and a map->base_link Odometry. See sil/viz/viz_node.py.
 #
-# Env: ROS_ENV (default ros_noetic), RVIS (default 1), ROS_MASTER_URI.
+# Env: ROS_SETUP (setup.bash to source), ROS_ENV (conda env, default
+# ros_noetic), RVIS (1 = launch rviz), ROS_MASTER_URI, ROS_IP.
 # NOTE: no `set -u`; the RoboStack activate hooks reference unset variables.
 set -o pipefail
 
@@ -47,9 +48,19 @@ if [ ! -f "$BAG" ]; then
 fi
 
 CONDA_SH="${CONDA_SH:-$HOME/miniconda3/etc/profile.d/conda.sh}"
-# shellcheck source=/dev/null
-source "$CONDA_SH"
-conda activate "${ROS_ENV:-ros_noetic}" || exit 1
+# ROS environment: a RoboStack conda env on the host, or a system Noetic on the
+# Orin (both are ROS1 Noetic). ROS_SETUP overrides either.
+if [ -n "${ROS_SETUP:-}" ]; then
+  # shellcheck source=/dev/null
+  source "$ROS_SETUP" || exit 1
+elif [ -f /opt/ros/noetic/setup.bash ]; then
+  # shellcheck source=/dev/null
+  source /opt/ros/noetic/setup.bash || exit 1
+else
+  # shellcheck source=/dev/null
+  source "$CONDA_SH" || exit 1
+  conda activate "${ROS_ENV:-ros_noetic}" || exit 1
+fi
 export ROS_MASTER_URI="${ROS_MASTER_URI:-http://127.0.0.1:11311}"
 export ROS_IP="${ROS_IP:-127.0.0.1}"
 
