@@ -11,7 +11,8 @@
 # vector (rqt_plot) and a map->base_link Odometry. See sil/viz/viz_node.py.
 #
 # Env: ROS_SETUP (setup.bash to source), ROS_ENV (conda env, default
-# ros_noetic), RVIS (1 = launch rviz), ROS_MASTER_URI, ROS_IP.
+# ros_noetic), PYTHON (default python3 -- the Orin's `python` is Python 2),
+# RVIS (1 = launch rviz), ROS_MASTER_URI, ROS_IP.
 # NOTE: no `set -u`; the RoboStack activate hooks reference unset variables.
 set -o pipefail
 
@@ -88,7 +89,7 @@ for _ in $(seq 1 50); do
 done
 
 echo "[viz] starting visualization node"
-python -u sil/viz/viz_node.py >"$LOG_DIR/viz.log" 2>&1 &
+"${PYTHON:-python3}" -u sil/viz/viz_node.py >"$LOG_DIR/viz.log" 2>&1 &
 NODE_PID=$!
 
 if [ "${RVIS:-1}" != "0" ] && command -v rviz >/dev/null 2>&1; then
