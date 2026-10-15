@@ -24,6 +24,7 @@ import argparse
 import csv
 import glob
 import os
+import struct
 import sys
 
 import numpy as np
@@ -37,9 +38,22 @@ except ImportError:  # pragma: no cover - dependency hint
 
 
 def _payload(rawdata: bytes) -> bytes:
-    """msgpack bytes inside a serialized ``std_msgs/UInt8MultiArray``."""
-    # ROS1 serializes ``uint8[] data`` as a uint32 length prefix + the bytes.
-    return rawdata[4:] if len(rawdata) >= 4 else rawdata
+    """msgpack bytes inside a serialized ``std_msgs/UInt8MultiArray``.
+
+    ROS1 serializes ``MultiArrayLayout layout; uint8[] data``: a uint32 dim
+    count, each dimension (uint32 label length + label + uint32 size + uint32
+    stride), then uint32 data_offset and uint32 data length before the bytes.
+    """
+    offset = 0
+    (num_dims,) = struct.unpack_from("<I", rawdata, offset)
+    offset += 4
+    for _ in range(num_dims):
+        (label_len,) = struct.unpack_from("<I", rawdata, offset)
+        offset += 4 + label_len + 8  # label, then size and stride
+    offset += 4  # data_offset
+    (data_len,) = struct.unpack_from("<I", rawdata, offset)
+    offset += 4
+    return rawdata[offset : offset + data_len]
 
 
 def _bag_files(path: str) -> list[str]:
@@ -57,7 +71,7 @@ def _read_messages(path: str):
     for bag in _bag_files(path):
         with Reader(bag) as reader:
             for connection, _timestamp, rawdata in reader.messages():
-                if connection.msgtype != "std_msgs/UInt8MultiArray":
+                if not connection.msgtype.endswith("UInt8MultiArray"):
                     continue
                 yield connection.topic, codec.decode(_payload(rawdata))
 
@@ -72,11 +86,17 @@ def _collect(path: str) -> dict:
             session = message
         elif topic == "/lead/sensor_frame":
             sensors = message.get("sensors", {})
-            images = [
-                sensors[key]
-                for key in sorted(sensors)
-                if key.startswith("rgb_") and isinstance(sensors[key], np.ndarray)
-            ]
+            images = []
+            for key in sorted(sensors):
+                if not key.startswith("rgb_"):
+                    continue
+                value = sensors[key]
+                if isinstance(value, (tuple, list)):
+                    # Camera payloads travel as (frame, image) tuples.
+                    arrays = [item for item in value if isinstance(item, np.ndarray)]
+                    value = arrays[-1] if arrays else None
+                if isinstance(value, np.ndarray) and value.ndim == 3:
+                    images.append(value)
             if images:
                 frames.append(np.concatenate(images, axis=1))
         elif topic == "/lead/control":
@@ -94,8 +114,13 @@ def _collect(path: str) -> dict:
 def _write_video(frames: list[np.ndarray], out_dir: str, fps: float) -> str | None:
     import cv2
 
+    bgr = []
+    for frame in frames:
+        if frame.ndim == 3 and frame.shape[2] == 4:
+            frame = frame[:, :, :3]  # drop alpha
+        bgr.append(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+    height, width = bgr[0].shape[:2]
     path = os.path.join(out_dir, "input.mp4")
-    height, width = frames[0].shape[:2]
     writer = cv2.VideoWriter(
         path,
         cv2.VideoWriter_fourcc(*"mp4v"),
@@ -110,8 +135,8 @@ def _write_video(frames: list[np.ndarray], out_dir: str, fps: float) -> str | No
             fps,
             (width, height),
         )
-    for frame in frames:
-        writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+    for frame in bgr:
+        writer.write(frame)
     writer.release()
     return path
 

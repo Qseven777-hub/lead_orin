@@ -16,6 +16,8 @@
 #                               Point it at the USB drive to avoid using the
 #                               Orin's internal storage, e.g.
 #                               BAG_DIR="/media/tjuae/<usb>/sil_bags"
+#   BAG_SCENARIO                subdirectory per scenario (default "unknown"),
+#                               so bags land at BAG_DIR/<scenario>/*.bag
 #   RECORD_TOPICS               space-separated topics to record
 #   BAG_SPLIT_MB                split the bag every N MiB (0 = no split)
 #   ROS_IP / ROS_MASTER_URI / SIL_ENGINE_ENDPOINT / CONDA_SH / CONDA_ENV /
@@ -35,9 +37,11 @@ LEAD_CONFIG="${LEAD_CONFIG:-policy.target=orin_engine_policy:OrinEngineTransfuse
 SIL_SEND_PLAN="${SIL_SEND_PLAN:-1}"   # publish lead/plan for the recording
 LOG_DIR="${LOG_DIR:-/tmp/sil_orin}"
 BAG_DIR="${BAG_DIR:-$HOME/sil_bags}"
+BAG_SCENARIO="${BAG_SCENARIO:-unknown}"   # subdir per scenario, e.g. 1773
 RECORD_TOPICS="${RECORD_TOPICS:-/lead/session /lead/sensor_frame /lead/control /lead/plan /lead/heartbeat /lead/error}"
 BAG_SPLIT_MB="${BAG_SPLIT_MB:-0}"
-mkdir -p "$LOG_DIR" "$BAG_DIR"
+BAG_RUN_DIR="$BAG_DIR/$BAG_SCENARIO"
+mkdir -p "$LOG_DIR" "$BAG_RUN_DIR"
 
 if [ -z "${CHECKPOINT:-}" ]; then echo "set CHECKPOINT" >&2; exit 2; fi
 if [ -z "${LEAD_QUANTIZED_ENGINE:-}" ]; then echo "set LEAD_QUANTIZED_ENGINE" >&2; exit 2; fi
@@ -106,14 +110,14 @@ done
 grep -q "Orin SIL agent node listening" "$LOG_DIR/agent.log" 2>/dev/null || { echo "[orin] agent not listening; see $LOG_DIR/agent.log"; exit 1; }
 
 # --- rosbag recording (passive tap; does not affect the control path) --------
-BAG_BASE="$BAG_DIR/sil_$(date +%Y%m%d_%H%M%S)"
+BAG_BASE="$BAG_RUN_DIR/sil_$(date +%Y%m%d_%H%M%S)"
 BAG_ARGS=(record -O "$BAG_BASE.bag")
 if [ "$BAG_SPLIT_MB" -gt 0 ] 2>/dev/null; then
   BAG_ARGS+=(--split "--size=$BAG_SPLIT_MB")
 fi
-FREE_MB="$(df -Pm "$BAG_DIR" 2>/dev/null | awk 'NR==2{print $4}')"
+FREE_MB="$(df -Pm "$BAG_RUN_DIR" 2>/dev/null | awk 'NR==2{print $4}')"
 echo "[orin] recording ${RECORD_TOPICS}"
-echo "[orin] bag dir: $BAG_DIR (free ${FREE_MB:-?} MiB)"
+echo "[orin] bag dir: $BAG_RUN_DIR (free ${FREE_MB:-?} MiB)"
 rosbag "${BAG_ARGS[@]}" $RECORD_TOPICS >"$LOG_DIR/rosbag.log" 2>&1 &
 BAG_PID=$!
 sleep 1
