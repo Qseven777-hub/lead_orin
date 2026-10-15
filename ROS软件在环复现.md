@@ -537,6 +537,9 @@ python scripts/common/sil_rosbag_parser.py \
 # 也可 --variant <名字> 改子目录、--out <目录> 直接指定
 ```
 
+> 注：`*_demo.mp4` 左半是**策略输入相机**、右半是**合成 BEV 规划面板**（离线用 `lead/plan` 画），
+> 不是 CARLA 的 cinematic / 真实俯视相机（那两个只存在于仿真运行时，不在 bag 里）。
+
 ### 11.4 实测结果（route 1773）
 
 - 主机：`bash scripts/common/run_bench2drive_orin_v2.sh 1` → **Completed，score 100.0**；
