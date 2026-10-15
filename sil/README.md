@@ -19,15 +19,18 @@
 
 ## 2. 本仓库里的组件
 
-| 路径                                                           | 运行环境                | 说明                                                             |
-| -------------------------------------------------------------- | ----------------------- | ---------------------------------------------------------------- |
-| `src/lead/evaluation/sil/`                                     | py3.10                  | 契约 `contract`、msgpack 编解码 `codec`、ZeroMQ 传输 `transport` |
-| `src/lead/evaluation/agents/remote/remote_transfuser_agent.py` | py3.10                  | 主机 adapter：转发传感器、施加远端控制，保留 infraction/metrics  |
-| `ros_bridge/bridge_node.py`                                    | ROS1 Noetic (py3.8/3.9) | ROS `UInt8MultiArray` ↔ 本地 ZeroMQ（唯一 import rospy 的代码）  |
-| `tools/stub_orin_node.py`                                      | ROS1 Noetic             | 临时 Orin 替身（回固定 control），用于链路自检                   |
-| `tools/local_probe.py`                                         | py3.10                  | 发一帧并等待 control                                             |
-| `run_loopback.sh`                                              | —                       | 单机端到端自检（无需 CARLA/Orin）                                |
-| `maintain_repo.sh`                                             | —                       | 收工：检查 → 提交推送 `lead_v1` → 同步并推送 `lead_orin`         |
+| 路径                                                           | 运行环境                | 说明                                                               |
+| -------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------ |
+| `src/lead/evaluation/sil/`                                     | py3.10                  | 契约 `contract`、msgpack 编解码 `codec`、ZeroMQ 传输 `transport`   |
+| `src/lead/evaluation/agents/remote/remote_transfuser_agent.py` | py3.10                  | 主机 adapter：转发传感器、施加远端控制，保留 infraction/metrics    |
+| `ros_bridge/bridge_node.py`                                    | ROS1 Noetic (py3.8/3.9) | ROS `UInt8MultiArray` ↔ 本地 ZeroMQ（唯一 import rospy 的代码）    |
+| `tools/stub_orin_node.py`                                      | ROS1 Noetic             | 临时 Orin 替身（回固定 control），用于链路自检                     |
+| `tools/local_probe.py`                                         | py3.10                  | 发一帧并等待 control                                               |
+| `viz/viz_node.py`                                              | ROS1 Noetic (py3.8/3.9) | 把 msgpack 话题转成 RViz 标准消息（PointCloud2/Path/Marker/Image） |
+| `viz/lead_sil.rviz`                                            | RViz                    | 上述话题的显示配置                                                 |
+| `viz/run_viz.sh`                                               | —                       | 一键：回放 bag + 可视化节点 + RViz                                 |
+| `run_loopback.sh`                                              | —                       | 单机端到端自检（无需 CARLA/Orin）                                  |
+| `maintain_repo.sh`                                             | —                       | 收工：检查 → 提交推送 `lead_v1` → 同步并推送 `lead_orin`           |
 
 Orin 侧的组件（**在 `lead_orin`**）：`sil/orin/agent_node.py`（节点）、`engine_service.py`
 （系统 py3.8 的 TensorRT 引擎服务）、`engine_codec.py`、`orin_policy_runner.py`、
@@ -148,6 +151,9 @@ python -m pytest tests/unittests/evaluation/sil -q
 | `sil/tools/stub_orin_node.py`   | 临时 Orin 替身（回固定 control），用于链路自检                  |
 | `sil/tools/local_probe.py`      | 发一帧并等待 control                                            |
 | `sil/run_loopback.sh`           | 单机端到端自检（无需 CARLA/Orin）                               |
+| `sil/viz/viz_node.py`           | msgpack 话题 → RViz 标准消息（PointCloud2/Path/Marker/Image）   |
+| `sil/viz/lead_sil.rviz`         | RViz 显示配置                                                   |
+| `sil/viz/run_viz.sh`            | 一键：回放 bag + 可视化节点 + RViz                              |
 | `sil/maintain_repo.sh`          | 收工：检查 → 提交推送 `lead_v1` → 同步并推送 `lead_orin`        |
 | `sil/README.md`                 | 本文件                                                          |
 
@@ -186,3 +192,38 @@ python -m pytest tests/unittests/evaluation/sil -q
 | `src/lead/__main__.py`                                    | 支持 `LEAD_AGENT_MODULE` 选择 remote agent                                                    |
 | `pyproject.toml`                                          | 加 `msgpack` / `pyzmq`；basedpyright 加 remote 运行环境；ruff 纳入 `sil/**`                   |
 | `scripts/common/run_bench2drive_fast_v2.sh`、`.gitignore` | 小改（接入 remote / 忽略产物）                                                                |
+
+## 8. RViz 可视化（回放 rosbag，为实车打基础）
+
+SIL 的所有消息都是 `std_msgs/UInt8MultiArray`（msgpack），RViz 看不懂。`sil/viz/viz_node.py`
+把它们转成 RViz 的原生消息类型，**不改动 SIL 契约**；将来实车时同样的显示项直接改由真实驱动话题喂入即可。
+
+```bash
+# 回放录好的 bag（自动起 roscore + 可视化节点 + RViz）
+bash sil/viz/run_viz.sh outputs/local_evaluation/Bench2Drive_220_orin_rosbag/1773 --loop
+# 没装 RViz 的机器：只发话题，用 rostopic 检查
+RVIS=0 bash sil/viz/run_viz.sh <bag 文件或目录>
+```
+
+发布的话题（前缀 `lead/viz`，可用 `SIL_VIZ_PREFIX` 改）：
+
+| 话题                        | 类型                             | 内容                                                  |
+| --------------------------- | -------------------------------- | ----------------------------------------------------- |
+| `lead/viz/lidar`            | `sensor_msgs/PointCloud2`        | `lidar1+lidar2` 按外参转到 ego 系（x,y,z,intensity）  |
+| `lead/viz/radar`            | `sensor_msgs/PointCloud2`        | `radar1..4` 极坐标→Cartesian→ego（x,y,z,velocity）    |
+| `lead/viz/path`             | `nav_msgs/Path`                  | `lead/plan` 的 `future_waypoints`                     |
+| `lead/viz/route`            | `nav_msgs/Path`                  | `lead/plan` 的 `route`                                |
+| `lead/viz/markers`          | `visualization_msgs/MarkerArray` | 目标点（previous/target/next）+ 自车框 + 控制读数文本 |
+| `lead/viz/camera/image`     | `sensor_msgs/Image`              | 3 路相机横向拼接（`bgr8`）                            |
+| `lead/viz/camera_<i>/image` | `sensor_msgs/Image`              | 单路相机                                              |
+| `lead/viz/control`          | `std_msgs/Float32MultiArray`     | `[steer, throttle, brake, infer_ms]`，给 `rqt_plot`   |
+| `lead/viz/odom`             | `nav_msgs/Odometry`              | 自车位姿（`map` 系，GNSS 反投影 + 短窗平滑）          |
+| `/tf`                       | `tf2_msgs/TFMessage`             | `map → base_link`（需 `tf2_ros`，正常 RViz 环境自带） |
+
+要点：
+
+- 输入话题名可用环境变量覆盖：`SIL_VIZ_SENSOR` / `SIL_VIZ_PLAN` / `SIL_VIZ_CONTROL` / `SIL_VIZ_SESSION`，
+  默认即 `lead/*`；所以**边跑边看**和**回放 bag** 用的是同一个节点。
+- `map → base_link` 由 bag 里的 GNSS 反投影得到。**SIL 里 IMU 罗盘恒为 0（不可用）**，航向按平滑
+  轨迹推算；若环境没有 `tf2_ros`，节点会告警并跳过 TF，把 RViz 的 Fixed Frame 设成 `base_link` 即可。
+- 控制曲线：`rqt_plot /lead/viz/control/data[0]`（steer）、`[1]`（throttle）、`[2]`（brake）、`[3]`（infer_ms）。

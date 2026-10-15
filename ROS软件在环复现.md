@@ -581,6 +581,27 @@ python scripts/common/sil_rosbag_parser.py \
 - 或把**模型感知输出**（`bounding_box` / `semantic` / `bev_semantic`）随 `lead/plan` 一起发出来录制；
 - 或在 Orin 上**分别计时**（引擎服务回包里已有引擎侧 `infer_ms`），把预处理与推理拆开看。
 
+### 11.7 RViz 可视化（回放已录 bag，为实车打基础）
+
+bag 里的话题都是 `std_msgs/UInt8MultiArray`（msgpack），RViz 不能直接看。`sil/viz/viz_node.py`
+订阅这些话题并**转成 RViz 的原生消息**（不动 SIL 契约）；实车时同样的显示项改由真实驱动话题喂入即可。
+
+```bash
+# 回放 bag：自动起 roscore + 可视化节点 + RViz
+bash sil/viz/run_viz.sh outputs/local_evaluation/Bench2Drive_220_orin_rosbag/1773 --loop
+# 没装 RViz 的机器（只发话题）：
+RVIS=0 bash sil/viz/run_viz.sh <bag 文件或目录>
+```
+
+发布话题（前缀 `lead/viz`）：`lidar`(PointCloud2)、`radar`(PointCloud2)、`path`/`route`(nav_msgs/Path)、
+`markers`(MarkerArray：目标点/自车框/控制读数)、`camera/image` 与 `camera_<i>/image`(Image)、
+`control`(Float32MultiArray，配 `rqt_plot`)、`odom`(Odometry)、以及 `/tf` 的 `map→base_link`。
+
+> 说明：输入话题名可用 `SIL_VIZ_SENSOR/PLAN/CONTROL/SESSION` 覆盖（默认 `lead/*`），所以**在线**和
+> **回放**共用一个节点；`map→base_link` 由 GNSS 反投影（SIL 的 IMU 罗盘恒为 0，航向按平滑轨迹算），
+> 若环境缺 `tf2_ros` 节点会跳过 TF，把 RViz 的 Fixed Frame 设成 `base_link` 即可。详见
+> [`sil/README.md`](sil/README.md) §8。
+
 ## 12. 一页速查（我们这次实验的具体值）
 
 > 下面就是本次两台机的真实命令与路径，直接复制即可（换机器时替换成你的值）。
