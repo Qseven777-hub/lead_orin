@@ -483,7 +483,70 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
-## 11. 一页速查（我们这次实验的具体值）
+## 11. 录制 rosbag 与可视化（把“规划”也录下来）
+
+目的：把一次 SIL 运行完整录成 ROS bag，事后解码成**相机视频 + 控制曲线 + 规划轨迹图**，用于回溯/可视化。
+
+### 11.1 新增一个只读话题 `lead/plan`
+
+- Orin 照旧把 `lead/control` 发给主机（**控制逻辑不变**）；
+- 额外在 **`lead/plan`** 上发布模型本帧的**规划**（仅可视化用）：`future_waypoints`、`route`、目标速度，以及 previous/current/next 目标点、ego speed；
+- 开关：环境变量 `SIL_SEND_PLAN=1`（`run_orin_rosbag.sh` 默认打开）；
+- 主机**不订阅**它，因此对控制链路零影响。
+
+### 11.2 一键录制：`sil/orin/run_orin_rosbag.sh`（Orin 侧）
+
+在 `run_orin.sh` 基础上多起一个 `rosbag record`（**旁路录制**，不参与控制）。
+
+- 目录结构 **`BAG_DIR/<场景>/*.bag`**（按场景分子目录，例如
+  `.../sil_bags/1773/sil_20261015_102219.bag`）；
+- 默认录制话题：`/lead/session /lead/sensor_frame /lead/control /lead/plan /lead/heartbeat /lead/error`；
+- 可配：`BAG_DIR`（建议指到 U 盘）、`BAG_SCENARIO`（场景/route id）、`RECORD_TOPICS`、`BAG_SPLIT_MB`；
+- 退出时对 rosbag 发 **SIGINT**，让 bag 正常收尾（写索引，`.active` → `.bag`）。
+
+```bash
+# Orin
+export BAG_DIR="/media/tjuae/<U盘卷标>/sil_bags"
+export BAG_SCENARIO=1773
+bash sil/orin/run_orin_rosbag.sh
+# 自检会打印： recording -> .../sil_bags/1773/sil_<时间>.bag
+```
+
+> **话题内容记录在哪个文件**：全部话题的内容都落在上面这**一个 `.bag` 文件**里
+> （录制进行时是 `*.bag.active`，正常收尾后变成 `*.bag`）。包里按话题分组消息，
+> key 就是话题名；`lead/sensor_frame` 最大，`lead/plan` 最小。
+
+### 11.3 解码/可视化：`sil/tools/bag_visualize.py`
+
+读 ROS1 bag（需一次性 `pip install rosbags`），用 `lead.evaluation.sil.codec` 解码 msgpack 字节，输出：
+
+| 产物                            | 内容                                                        |
+| ------------------------------- | ----------------------------------------------------------- |
+| `input.mp4`                     | `sensor_frame` 里的相机图（多相机横向拼接）                 |
+| `controls.png` / `controls.csv` | 每帧 `steer/throttle/brake/infer_ms` 曲线与表格             |
+| `plan_grid.png`                 | 抽样若干帧的规划（waypoints / route / target points / ego） |
+
+```bash
+source ~/miniforge3/etc/profile.d/conda.sh && conda activate gqzl-py310
+python sil/tools/bag_visualize.py "<bag 路径>" --out /tmp/sil_viz
+# frames=... controls=... plans=...
+# video  : .../input.mp4
+# control: .../controls.png
+# plan   : .../plan_grid.png
+```
+
+### 11.4 实测结果（route 1773）
+
+- 主机：`bash scripts/common/run_bench2drive_orin_v2.sh 1` → **Completed，score 100.0**；
+- Orin 录到 U 盘：`sil_bags/1773/sil_20261015_102219.bag` = **1.13 GB**；
+- 包内消息数：`sensor_frame 1395 / control 1394 / plan 1394 / heartbeat 1196 / session 2`，
+  `/lead/plan` ≈ 3.2 Hz（与 SIL 循环一致）；
+- 解码产物：`frames=513 controls=512 plans=512` → `input.mp4`(9.95 MB)、`controls.png`、`plan_grid.png`、`controls.csv`。
+
+> 提醒：录制是旁路，不影响闭环；`sensor_frame` 很大（本轮约 1.1 GB/条路线），建议录到 U 盘、
+> 只录需要的场景，必要时用 `BAG_SPLIT_MB` 分卷。
+
+## 12. 一页速查（我们这次实验的具体值）
 
 > 下面就是本次两台机的真实命令与路径，直接复制即可（换机器时替换成你的值）。
 
