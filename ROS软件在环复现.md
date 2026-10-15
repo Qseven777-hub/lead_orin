@@ -537,9 +537,11 @@ python scripts/common/sil_rosbag_parser.py \
 # 也可 --variant <名字> 改子目录、--out <目录> 直接指定
 ```
 
-> 注：`*_demo.mp4` 左半是**策略输入相机**、右半是**合成 BEV**：叠加了 **LiDAR 点云** +
+> 注：`*_demo.mp4` 左半是**策略输入相机**、右半是**合成 BEV**：**LiDAR 点云**（已按
+> `sensor_rig` 外参转到 ego 系，并合并 `lidar1+lidar2`、剔除自车车体点）+ **雷达回波**（橙色）+
 > `lead/plan` 的规划（青色路径点、红色目标点）+ 控制读数。它不是 CARLA 的 cinematic / 真实俯视
-> 相机（那两个只存在于仿真运行时，不在 bag 里；**其他交通参与者也不在 bag 里**）。
+> 相机（那两个只存在于仿真运行时，不在 bag 里）；**其他交通参与者没有独立话题**，只能靠 LiDAR/
+> 雷达回波侧面体现（见 §11.5）。
 
 ### 11.4 实测结果（route 1773）
 
@@ -552,6 +554,32 @@ python scripts/common/sil_rosbag_parser.py \
 
 > 提醒：录制是旁路，不影响闭环；`sensor_frame` 很大（本轮约 1.1 GB/条路线），建议录到 U 盘、
 > 只录需要的场景，必要时用 `BAG_SPLIT_MB` 分卷。
+
+### 11.5 可视化常见疑问（方向 / 点云 / 雷达 / 延迟）
+
+- **左右方向**：面板用 ego 系（**x 前、y 右**，CARLA/`to_local_frame_2d` 约定），`+y` 画在右侧，
+  与相机一致；早期版本按 `+y` 向左画过，会出现“左右相反”，已修。
+- **LiDAR 一闪一闪**：bag 里存的是**每 tick 的单次扫描**，而且每个点都在**传感器自身坐标系**
+  （`lidar_rot_1=-90°`、`lidar_rot_2=-270°`），单传感器一次只扫半个环，两帧之间扫到的那半边会
+  左右互换。必须**按外参转到 ego 系并合并 `lidar1+lidar2`** 才是稳定的整环；直接拿原始点画就会闪。
+- **为什么没有雷达**：雷达**在 bag 里**（`radar1..4`，`(距离, 俯仰, 方位, 速度)`），parser 现已
+  转成 ego 系 Cartesian 并画成**橙色回波点**；稀疏，但能看到前后左右的物体回波。
+- **其他交通参与者**：没有单独话题。模型有感知头（bbox/semantic/BEV semantic）但**没发也没录**；
+  CARLA 的 actor 真值也没录。要显式画旁车需加话题 + **重跑**（见 §11.6 可选扩展）。
+- **`infer_ms` 为什么高**：日志里的 `infer_ms` 是 **Orin 侧整个 `core.run_step`** 的耗时
+  （`agent_node.py` 用 `perf_counter` 包住 `run_step`），包含：`tick`（定位 Kalman + 点云外参变换 +
+  地面剔除 RANSAC）+ 特征构建（**相机 JPEG 编解码往返**、BEV 光栅化）+ `features_to_batch` +
+  **经 ZeroMQ 把特征发给 TensorRT 引擎服务并等回包** + 控制跟踪。**TensorRT 引擎本身**只占其中
+  很小一部分（`model_fp16.engine` 基准 ≈ 12 ms，引擎服务单独打印的 `infer_ms` 即此项）。
+  也就是说 100+ ms 主要是 **CPU 预处理 + IPC**，不是 GPU 推理。
+
+### 11.6 可选扩展（要显式看其他交通参与者，需重跑）
+
+任选其一，都要**加话题 + 重跑一条**：
+
+- 把 **CARLA actor 真值**（scenario runner 的参与车辆位姿）发布到新话题并录制；
+- 或把**模型感知输出**（`bounding_box` / `semantic` / `bev_semantic`）随 `lead/plan` 一起发出来录制；
+- 或在 Orin 上**分别计时**（引擎服务回包里已有引擎侧 `infer_ms`），把预处理与推理拆开看。
 
 ## 12. 一页速查（我们这次实验的具体值）
 
