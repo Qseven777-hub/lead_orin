@@ -179,6 +179,38 @@ def tmerc_to_map(gnss: np.ndarray, lat_ref: float, lon_ref: float) -> np.ndarray
     return np.array([x, y])
 
 
+def mercator_to_map(gnss: np.ndarray, lat_ref: float, lon_ref: float) -> np.ndarray:
+    """Invert the leaderboard's equatorial-Mercator GPS into map metres.
+
+    The global plan (from the routes XML) is projected with the equatorial
+    Mercator, which is *not* the transverse Mercator CARLA 0.9.16's GNSS sensor
+    reports. Using the sensor's projection for the plan puts the route about
+    10 km away from the ego.
+
+    Args:
+        gnss: ``(lat, lon, alt)`` reading in degrees and metres.
+        lat_ref: Latitude reference of the map.
+        lon_ref: Longitude reference of the map.
+
+    Returns:
+        The local ``(x, y)`` position in metres.
+    """
+    lat, lon = float(gnss[0]), float(gnss[1])
+    scale = math.cos(lat_ref * math.pi / 180.0)
+    my = math.log(math.tan((lat + 90.0) * math.pi / 360.0)) * (
+        EARTH_RADIUS_EQUA * scale
+    )
+    mx = (lon * (math.pi * EARTH_RADIUS_EQUA * scale)) / 180.0
+    y = (
+        scale
+        * EARTH_RADIUS_EQUA
+        * math.log(math.tan((90.0 + lat_ref) * math.pi / 360.0))
+        - my
+    )
+    x = mx - scale * lon_ref * math.pi * EARTH_RADIUS_EQUA / 180.0
+    return np.array([x, y])
+
+
 def cloud2(
     points: np.ndarray,
     names: typing.Sequence[str],
@@ -395,7 +427,7 @@ class SilViz:
         lon_ref = float(session.get("lon_ref") or 0.0)
         points = np.array(
             [
-                tmerc_to_map(
+                mercator_to_map(
                     np.array([float(entry["lat"]), float(entry["lon"]), 0.0]),
                     lat_ref,
                     lon_ref,
