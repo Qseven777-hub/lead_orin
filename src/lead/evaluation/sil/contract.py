@@ -26,12 +26,16 @@ TOPIC_SENSOR = "lead/sensor_frame"
 TOPIC_CONTROL = "lead/control"
 TOPIC_HEARTBEAT = "lead/heartbeat"
 TOPIC_ERROR = "lead/error"
+# Optional: the model's plan, published by the Orin alongside the control so a
+# rosbag can record it for visualization. Control logic does not read it.
+TOPIC_PLAN = "lead/plan"
 
 # Topics the host compute process expects back from the Orin.
 ORIN_TO_HOST_TOPICS: tuple[str, ...] = (
     TOPIC_CONTROL,
     TOPIC_HEARTBEAT,
     TOPIC_ERROR,
+    TOPIC_PLAN,
 )
 
 # Non-camera leaderboard sensor ids the agent's ``tick`` reads.
@@ -242,3 +246,25 @@ def error(
     payload = _envelope("error")
     payload.update({"code": code, "message": message, "seq": seq})
     return payload
+
+
+def plan(
+    *,
+    seq: int,
+    step: int,
+    data: dict[str, typing.Any],
+) -> dict[str, typing.Any]:
+    """Build the optional per-frame plan message.
+
+    Args:
+        seq: Sequence of the sensor frame this plan answers.
+        step: Agent step counter the Orin reached.
+        data: Plan payload (trajectory, target speed, route, ...); every value
+            is a msgpack-encodable object.
+
+    Returns:
+        The plan message payload.
+    """
+    message = _envelope("plan")
+    message.update({"seq": seq, "step": step, "plan": data})
+    return message

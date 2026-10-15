@@ -45,6 +45,50 @@ RECV_TIMEOUT_MS = 1000
 # Log one line per control frame by default; SIL_LOG_EVERY_FRAME=0 logs only the
 # first (per-frame is verbose: up to ~20 lines/second).
 LOG_EVERY_FRAME = os.environ.get("SIL_LOG_EVERY_FRAME", "1") == "1"
+# When set, attach the model's plan (trajectory, target speed, route) to the
+# control message's ``aux`` so a recorded rosbag carries it for visualization.
+SEND_PLAN = os.environ.get("SIL_SEND_PLAN", "0") == "1"
+
+
+def _to_numpy(value):
+    """Convert a torch tensor (or pass through numpy/scalar/None)."""
+    if value is None:
+        return None
+    if hasattr(value, "detach"):
+        value = value.detach().cpu().numpy()
+    return value
+
+
+def _first(value):
+    """First batch element as a numpy array/scalar, or None."""
+    array = _to_numpy(value)
+    if array is None:
+        return None
+    return array[0] if getattr(array, "ndim", 0) > 0 else array
+
+
+def _plan_aux(core) -> dict:
+    """The plan the core just computed, as a msgpack-encodable dict."""
+    agent_prediction = getattr(core, "agent_prediction", None)
+    if agent_prediction is None:
+        return {}
+    prediction = agent_prediction.prediction
+    features = getattr(core, "features", None) or {}
+    target_speed = agent_prediction.target_speed
+    aux = {
+        "future_waypoints": _first(prediction.future_waypoints),
+        "route": _first(prediction.route),
+        "target_speed": (
+            float(_to_numpy(target_speed).reshape(-1)[0])
+            if target_speed is not None
+            else None
+        ),
+        "target_point": _first(features.get("target_point")),
+        "previous_target_point": _first(features.get("previous_target_point")),
+        "next_target_point": _first(features.get("next_target_point")),
+        "speed": _first(features.get("speed")),
+    }
+    return {key: value for key, value in aux.items() if value is not None}
 
 
 def load_checkpoint_config(checkpoint_dir: str):
@@ -149,6 +193,20 @@ class OrinAgentNode:
                 ),
             ),
         )
+        if SEND_PLAN:
+            # Visualization-only side channel: the control path above is unchanged.
+            plan_data = _plan_aux(self.core)
+            if plan_data:
+                self.transport.send(
+                    contract.TOPIC_PLAN,
+                    codec.encode(
+                        contract.plan(
+                            seq=int(frame["seq"]),
+                            step=int(frame["step"]),
+                            data=plan_data,
+                        ),
+                    ),
+                )
         self._controls_sent += 1
         if LOG_EVERY_FRAME or self._controls_sent == 1:
             LOG.info(
