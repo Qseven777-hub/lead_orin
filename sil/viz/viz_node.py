@@ -65,6 +65,16 @@ RADAR_ROT = (
 EGO_EXTENT_X = 2.45
 EGO_EXTENT_Y = 1.06
 
+# Global plan RoadOption values, for the navigation-point labels.
+ROAD_OPTIONS = {
+    1: "LEFT",
+    2: "RIGHT",
+    3: "STRAIGHT",
+    4: "LANEFOLLOW",
+    5: "CHANGELANELEFT",
+    6: "CHANGELANERIGHT",
+}
+
 BASE_FRAME = "base_link"
 MAP_FRAME = "map"
 
@@ -124,20 +134,25 @@ def to_ego(
 
     The rig only yaws its sensors, so this is the yaw-only rotation plus the
     sensor translation, mirroring the policy's ``lidar_to_ego_coordinate``.
+    Columns beyond ``xyz`` (intensity, Doppler, ...) are carried through.
 
     Args:
-        points: Sensor-frame ``(N, 3)`` points in metres.
+        points: Sensor-frame ``(N, >=3)`` points; the first three columns are
+            ``x, y, z`` in metres.
         pos: Sensor position ``(x, y, z)`` in the ego frame.
         yaw_deg: Sensor yaw in degrees.
 
     Returns:
-        The points in the ego frame.
+        The points in the ego frame, with the same number of columns.
     """
     rad = math.radians(yaw_deg)
     cos, sin = math.cos(rad), math.sin(rad)
     x = cos * points[:, 0] - sin * points[:, 1]
     y = sin * points[:, 0] + cos * points[:, 1]
-    return np.stack([x, y, points[:, 2]], axis=1) + np.asarray(pos, dtype=np.float32)
+    ego = np.stack([x, y, points[:, 2]], axis=1) + np.asarray(pos, dtype=np.float32)
+    if points.shape[1] > 3:
+        return np.concatenate([ego, points[:, 3:]], axis=1)
+    return ego
 
 
 def tmerc_to_map(gnss: np.ndarray, lat_ref: float, lon_ref: float) -> np.ndarray:
@@ -180,7 +195,16 @@ def cloud2(
 
     Returns:
         The filled message.
+
+    Raises:
+        ValueError: If the point columns do not match ``names``; a mismatch
+            would make ``point_step`` disagree with the data and every consumer
+            would silently drop the message.
     """
+    if points.ndim != 2 or points.shape[1] != len(names):
+        raise ValueError(
+            f"expected {len(names)} point columns {names}, got shape {points.shape}",
+        )
     cloud = PointCloud2()
     cloud.header.stamp = stamp
     cloud.header.frame_id = frame_id
@@ -286,6 +310,19 @@ class SilViz:
         )
         self.pub_odom = rospy.Publisher(f"{prefix}/odom", Odometry, queue_size=5)
         self.pub_camera = rospy.Publisher(f"{prefix}/camera/image", Image, queue_size=2)
+        # The global navigation plan is static per route, so latch it.
+        self.pub_navigation = rospy.Publisher(
+            f"{prefix}/navigation",
+            Path,
+            queue_size=1,
+            latch=True,
+        )
+        self.pub_navigation_points = rospy.Publisher(
+            f"{prefix}/navigation_points",
+            MarkerArray,
+            queue_size=1,
+            latch=True,
+        )
         self._camera_publishers: dict[int, rospy.Publisher] = {}
         self._tf = tf2_ros.TransformBroadcaster() if tf2_ros else None
         if self._tf is None:
@@ -343,6 +380,78 @@ class SilViz:
             session.get("map_name"),
             list(self._camera_indices),
         )
+        self._publish_navigation(session)
+
+    def _publish_navigation(self, session: dict) -> None:
+        """Publish the leaderboard global plan as a map-frame path and points.
+
+        Args:
+            session: The decoded session message carrying ``global_plan_gps``.
+        """
+        plan = session.get("global_plan_gps") or []
+        if not plan:
+            return
+        lat_ref = float(session.get("lat_ref") or 0.0)
+        lon_ref = float(session.get("lon_ref") or 0.0)
+        points = np.array(
+            [
+                tmerc_to_map(
+                    np.array([float(entry["lat"]), float(entry["lon"]), 0.0]),
+                    lat_ref,
+                    lon_ref,
+                )
+                for entry in plan
+            ],
+            dtype=np.float64,
+        )
+        stamp = rospy.Time.now()
+        self.pub_navigation.publish(path2(points, MAP_FRAME, stamp))
+        self.pub_navigation_points.publish(
+            self._navigation_markers(plan, points, stamp),
+        )
+        rospy.loginfo("navigation plan: %d points", len(plan))
+
+    def _navigation_markers(
+        self,
+        plan: list,
+        points: np.ndarray,
+        stamp: rospy.Time,
+    ) -> MarkerArray:
+        markers = MarkerArray()
+        for index, point in enumerate(points):
+            entry = plan[index]
+            sphere = Marker()
+            sphere.header.stamp = stamp
+            sphere.header.frame_id = MAP_FRAME
+            sphere.ns = "navigation_point"
+            sphere.id = index
+            sphere.type = Marker.SPHERE
+            sphere.action = Marker.ADD
+            sphere.pose.position.x = float(point[0])
+            sphere.pose.position.y = float(point[1])
+            sphere.pose.orientation.w = 1.0
+            sphere.scale.x = sphere.scale.y = sphere.scale.z = 3.0
+            sphere.color.r, sphere.color.g, sphere.color.b = (1.0, 0.0, 1.0)
+            sphere.color.a = 1.0
+            markers.markers.append(sphere)
+
+            text = Marker()
+            text.header.stamp = stamp
+            text.header.frame_id = MAP_FRAME
+            text.ns = "navigation_command"
+            text.id = len(plan) + index
+            text.type = Marker.TEXT_VIEW_FACING
+            text.action = Marker.ADD
+            text.pose.position.x = float(point[0])
+            text.pose.position.y = float(point[1])
+            text.pose.position.z = 6.0
+            text.pose.orientation.w = 1.0
+            text.scale.z = 4.0
+            text.color.r = text.color.g = text.color.b = text.color.a = 1.0
+            command = entry.get("command")
+            text.text = f"{index}: {ROAD_OPTIONS.get(command, command)}"
+            markers.markers.append(text)
+        return markers
 
     def _on_control(self, message: UInt8MultiArray) -> None:
         control = self.codec.decode(bytes(message.data))
