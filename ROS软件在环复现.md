@@ -516,23 +516,25 @@ bash sil/orin/run_orin_rosbag.sh
 > （录制进行时是 `*.bag.active`，正常收尾后变成 `*.bag`）。包里按话题分组消息，
 > key 就是话题名；`lead/sensor_frame` 最大，`lead/plan` 最小。
 
-### 11.3 解码/可视化：`sil/tools/bag_visualize.py`
+### 11.3 解码/可视化：`scripts/common/sil_rosbag_parser.py`
 
 读 ROS1 bag（需一次性 `pip install rosbags`），用 `lead.evaluation.sil.codec` 解码 msgpack 字节，输出：
 
-| 产物                            | 内容                                                        |
-| ------------------------------- | ----------------------------------------------------------- |
-| `input.mp4`                     | `sensor_frame` 里的相机图（多相机横向拼接）                 |
-| `controls.png` / `controls.csv` | 每帧 `steer/throttle/brake/infer_ms` 曲线与表格             |
-| `plan_grid.png`                 | 抽样若干帧的规划（waypoints / route / target points / ego） |
+| 产物                            | 内容                                                                      |
+| ------------------------------- | ------------------------------------------------------------------------- |
+| `sil.mp4`                       | **相机 + BEV 规划面板 + 控制/`infer_ms` 读数的合成视频**（一帧一个 tick） |
+| `input.mp4`                     | 只有相机图（多相机横向拼接）                                              |
+| `controls.png` / `controls.csv` | 每帧 `steer/throttle/brake/infer_ms` 曲线与表格                           |
+| `plan_grid.png`                 | 抽样若干帧的规划（waypoints / route / target points / ego）               |
 
 ```bash
-source ~/miniforge3/etc/profile.d/conda.sh && conda activate gqzl-py310
-python sil/tools/bag_visualize.py "<bag 路径>" --out /tmp/sil_viz
-# frames=... controls=... plans=...
-# video  : .../input.mp4
-# control: .../controls.png
-# plan   : .../plan_grid.png
+# 给结果目录（含 .bag），或 --bag <bag 文件/目录>；产物默认写到 <目录>/viz/
+python scripts/common/sil_rosbag_parser.py \
+    --results outputs/local_evaluation/Bench2Drive_220_orin_rosbag/1773
+# video  : .../viz/sil.mp4
+# video  : .../viz/input.mp4
+# control: .../viz/controls.png
+# plan   : .../viz/plan_grid.png
 ```
 
 ### 11.4 实测结果（route 1773）
@@ -541,7 +543,7 @@ python sil/tools/bag_visualize.py "<bag 路径>" --out /tmp/sil_viz
 - Orin 录到 U 盘：`sil_bags/1773/sil_20261015_102219.bag` = **1.13 GB**；
 - 包内消息数：`sensor_frame 1395 / control 1394 / plan 1394 / heartbeat 1196 / session 2`，
   `/lead/plan` ≈ 3.2 Hz（与 SIL 循环一致）；
-- 解码产物：`frames=513 controls=512 plans=512` → `input.mp4`(9.95 MB)、`controls.png`、`plan_grid.png`、`controls.csv`。
+- 解码产物：`frames=513 controls=512 plans=512` → `sil.mp4`(10.9 MB，合成视频)、`input.mp4`(9.95 MB)、`controls.png`、`plan_grid.png`、`controls.csv`。
 
 > 提醒：录制是旁路，不影响闭环；`sensor_frame` 很大（本轮约 1.1 GB/条路线），建议录到 U 盘、
 > 只录需要的场景，必要时用 `BAG_SPLIT_MB` 分卷。
