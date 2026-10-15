@@ -317,6 +317,8 @@ class SilViz:
         self._gnss = deque(maxlen=POSE_WINDOW)
         self._control_text = ""
         self._camera_indices: tuple[int, ...] = ()
+        self._nav_plan: list | None = None
+        self._nav_points: np.ndarray | None = None
 
         self.pub_lidar = rospy.Publisher(
             f"{prefix}/lidar",
@@ -388,6 +390,7 @@ class SilViz:
             self._on_control,
             queue_size=5,
         )
+        rospy.Timer(rospy.Duration(1.0), self._navigation_tick)
         rospy.loginfo("lead_sil_viz publishing under %s", prefix)
 
     def _camera_publisher(self, index: int) -> rospy.Publisher:
@@ -415,7 +418,7 @@ class SilViz:
         self._publish_navigation(session)
 
     def _publish_navigation(self, session: dict) -> None:
-        """Publish the leaderboard global plan as a map-frame path and points.
+        """Store the leaderboard global plan and publish it once.
 
         Args:
             session: The decoded session message carrying ``global_plan_gps``.
@@ -425,7 +428,8 @@ class SilViz:
             return
         lat_ref = float(session.get("lat_ref") or 0.0)
         lon_ref = float(session.get("lon_ref") or 0.0)
-        points = np.array(
+        self._nav_plan = plan
+        self._nav_points = np.array(
             [
                 mercator_to_map(
                     np.array([float(entry["lat"]), float(entry["lon"]), 0.0]),
@@ -436,12 +440,31 @@ class SilViz:
             ],
             dtype=np.float64,
         )
-        stamp = rospy.Time.now()
-        self.pub_navigation.publish(path2(points, MAP_FRAME, stamp))
-        self.pub_navigation_points.publish(
-            self._navigation_markers(plan, points, stamp),
-        )
         rospy.loginfo("navigation plan: %d points", len(plan))
+        self._publish_navigation_once()
+
+    def _publish_navigation_once(self) -> None:
+        """(Re)publish the stored navigation plan with a fresh stamp.
+
+        The plan is static, but RViz resolves ``map -> base_link`` at a message's
+        own stamp; a latched message older than the TF buffer would fail that
+        lookup and draw nothing, so a timer keeps a fresh stamp on the wire.
+        """
+        if self._nav_points is None or self._nav_plan is None:
+            return
+        stamp = rospy.Time.now()
+        self.pub_navigation.publish(path2(self._nav_points, MAP_FRAME, stamp))
+        self.pub_navigation_points.publish(
+            self._navigation_markers(self._nav_plan, self._nav_points, stamp),
+        )
+
+    def _navigation_tick(self, _event: typing.Any) -> None:
+        """Timer callback refreshing the static navigation plan.
+
+        Args:
+            _event: The timer event (unused).
+        """
+        self._publish_navigation_once()
 
     def _navigation_markers(
         self,
