@@ -19,7 +19,9 @@ import typing
 
 import msgpack
 import numpy as np
-import numpy.typing as npt
+
+if typing.TYPE_CHECKING:
+    import numpy.typing as npt
 
 # Marks a wire dict as an encoded ndarray, alongside its dtype, shape and bytes.
 _NDARRAY_MARKER = "__ndarray__"
