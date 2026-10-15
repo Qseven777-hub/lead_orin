@@ -174,13 +174,13 @@ Visualization Manager:
         Value: /lead/viz/route
       Value: true
     - Class: rviz/Path
-      Color: 255; 0; 255
+      Color: 255; 0; 0
       Enabled: true
       Head Diameter: 0.3
       Head Length: 0.2
       Length: 0.3
       Line Style: Lines
-      Line Width: 0.15
+      Line Width: 0.08
       Name: Navigation
       Offset:
         X: 0

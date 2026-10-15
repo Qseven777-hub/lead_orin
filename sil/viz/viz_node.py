@@ -462,8 +462,8 @@ class SilViz:
             sphere.pose.position.x = float(point[0])
             sphere.pose.position.y = float(point[1])
             sphere.pose.orientation.w = 1.0
-            sphere.scale.x = sphere.scale.y = sphere.scale.z = 3.0
-            sphere.color.r, sphere.color.g, sphere.color.b = (1.0, 0.0, 1.0)
+            sphere.scale.x = sphere.scale.y = sphere.scale.z = 0.5
+            sphere.color.r, sphere.color.g, sphere.color.b = (1.0, 0.0, 0.0)
             sphere.color.a = 1.0
             markers.markers.append(sphere)
 
@@ -476,9 +476,9 @@ class SilViz:
             text.action = Marker.ADD
             text.pose.position.x = float(point[0])
             text.pose.position.y = float(point[1])
-            text.pose.position.z = 6.0
+            text.pose.position.z = 2.5
             text.pose.orientation.w = 1.0
-            text.scale.z = 4.0
+            text.scale.z = 1.2
             text.color.r = text.color.g = text.color.b = text.color.a = 1.0
             command = entry.get("command")
             text.text = f"{index}: {ROAD_OPTIONS.get(command, command)}"
