@@ -40,6 +40,10 @@ if [ -z "${CHECKPOINT:-}" ]; then echo "set CHECKPOINT" >&2; exit 2; fi
 if [ -z "${LEAD_QUANTIZED_ENGINE:-}" ]; then echo "set LEAD_QUANTIZED_ENGINE" >&2; exit 2; fi
 export CHECKPOINT LEAD_QUANTIZED_ENGINE LEAD_CONFIG LEAD_DEVICE SIL_ENGINE_ENDPOINT="$ENGINE_ENDPOINT"
 
+# Rebuilding the policy loads the pretrained timm backbone; keep HuggingFace
+# offline so it uses the local cache instead of the (often blocked) network.
+export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
+
 ROSCORE_PID=""; BRIDGE_PID=""; ENGINE_PID=""; AGENT_PID=""; WATCH_PID=""
 cleanup() {
   for pid in "$WATCH_PID" "$AGENT_PID" "$ENGINE_PID" "$BRIDGE_PID" "$ROSCORE_PID"; do
