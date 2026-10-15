@@ -205,6 +205,19 @@ bash sil/viz/run_viz.sh outputs/local_evaluation/Bench2Drive_220_orin_rosbag/177
 RVIS=0 bash sil/viz/run_viz.sh <bag 文件或目录>
 ```
 
+环境：`run_viz.sh` 会自动选 ROS 环境——`ROS_SETUP=<setup.bash>` > `/opt/ros/noetic/setup.bash`
+
+> conda `ros_noetic`。
+
+- **Orin（Ubuntu 20.04 + 原生 Noetic）**：`/opt/ros/noetic` 已带 `rviz/tf2_ros/msgpack`，直接可用。
+
+- **主机（Ubuntu 22.04）**：Noetic 没有 jammy 的 apt 源，RViz 只能装进 RoboStack 的 conda 环境：
+
+  ```bash
+  conda install -n ros_noetic -c robostack-staging -c conda-forge \
+      ros-noetic-rviz ros-noetic-tf2-ros
+  ```
+
 发布的话题（前缀 `lead/viz`，可用 `SIL_VIZ_PREFIX` 改）：
 
 | 话题                        | 类型                             | 内容                                                  |

@@ -601,6 +601,9 @@ RVIS=0 bash sil/viz/run_viz.sh <bag 文件或目录>
 > **回放**共用一个节点；`map→base_link` 由 GNSS 反投影（SIL 的 IMU 罗盘恒为 0，航向按平滑轨迹算），
 > 若环境缺 `tf2_ros` 节点会跳过 TF，把 RViz 的 Fixed Frame 设成 `base_link` 即可。详见
 > [`sil/README.md`](sil/README.md) §8。
+>
+> 环境：Orin（20.04 原生 Noetic）已自带 `rviz/tf2_ros`；主机是 22.04，Noetic 无 apt 源，需把 RViz
+> 装进 RoboStack 环境：`conda install -n ros_noetic -c robostack-staging -c conda-forge ros-noetic-rviz ros-noetic-tf2-ros`。
 
 ## 12. 一页速查（我们这次实验的具体值）
 
